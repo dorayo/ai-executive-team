@@ -5,6 +5,11 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# 添加项目根目录到 Python 路径中
+import sys
+import os
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

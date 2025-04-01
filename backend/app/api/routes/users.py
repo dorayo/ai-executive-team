@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from typing import List
 
 from app.schemas.user import User, UserCreate, UserUpdate
-from app.services.user import get_users, get_user_by_id, create_user, update_user, delete_user
+from app.services.user import get_users, get_user_by_id, create_user, update_user, delete_user, check_user_exists
 from app.db.session import get_db
 
 router = APIRouter()
@@ -22,7 +22,20 @@ def create_new_user(
     user_in: UserCreate,
     db: Session = Depends(get_db),
 ):
-    user = create_user(db, user_in)
+    # 先检查用户是否已存在
+    if check_user_exists(db, user_in.email):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email already registered",
+        )
+    
+    try:
+        user = create_user(db, user_in)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
     return user
 
 @router.get("/{user_id}", response_model=User)

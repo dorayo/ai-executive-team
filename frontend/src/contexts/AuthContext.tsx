@@ -64,9 +64,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Login function
   const login = async (email: string, password: string) => {
     try {
-      const response = await axios.post(`${API_URL}/auth/login/access-token`, {
-        username: email,
-        password,
+      // 使用FormData格式发送请求，这是OAuth2PasswordRequestForm要求的格式
+      const formData = new FormData();
+      formData.append('username', email);
+      formData.append('password', password);
+      
+      const response = await axios.post(`${API_URL}/auth/login/access-token`, formData, {
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
       });
       
       const { access_token, user_id } = response.data;
@@ -84,6 +90,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       return true;
     } catch (error) {
+      console.error('Login error:', error);
       return false;
     }
   };

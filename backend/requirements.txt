@@ -27,7 +27,7 @@ google-auth-oauthlib>=1.0.0
 # Utils
 langchain>=0.0.267
 openai>=0.27.8
-tiktoken>=0.4.0
+tiktoken>=0.9.0
 numpy>=1.24.0
 pandas>=2.0.0
 

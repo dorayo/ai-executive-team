@@ -14,7 +14,18 @@ def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
     return db.query(User).filter(User.email == email).first()
 
+def check_user_exists(db: Session, email: str) -> bool:
+    """
+    检查用户邮箱是否已存在
+    """
+    user = get_user_by_email(db, email)
+    return user is not None
+
 def create_user(db: Session, user_in: UserCreate) -> User:
+    # 检查用户是否已存在
+    if check_user_exists(db, user_in.email):
+        raise ValueError(f"Email {user_in.email} already registered")
+        
     db_user = User(
         email=user_in.email,
         hashed_password=get_password_hash(user_in.password),
