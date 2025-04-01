@@ -10,6 +10,7 @@ import ChatPage from './pages/ChatPage';
 import DocumentsPage from './pages/DocumentsPage';
 import AIExecutivesPage from './pages/AIExecutivesPage';
 import ConversationsPage from './pages/ConversationsPage';
+import TaskPage from './pages/TaskPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Auth context
@@ -37,9 +38,11 @@ function AppRoutes() {
         </ProtectedRoute>
       }>
         <Route index element={<ChatPage />} />
+        <Route path="chat" element={<ChatPage />} />
         <Route path="documents" element={<DocumentsPage />} />
         <Route path="ai-executives" element={<AIExecutivesPage />} />
         <Route path="conversations" element={<ConversationsPage />} />
+        <Route path="tasks" element={<TaskPage />} />
       </Route>
       
       <Route path="*" element={<NotFoundPage />} />
