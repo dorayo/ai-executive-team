@@ -3,14 +3,15 @@ import { Outlet, Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 const MainLayout: React.FC = () => {
-  const { logout, user } = useAuth();
+  const auth = useAuth();
   const location = useLocation();
   
   // Navigation items
   const navItems = [
     { name: 'Chat', path: '/' },
+    { name: 'Conversations', path: '/conversations' },
     { name: 'Documents', path: '/documents' },
-    { name: 'AI Executives', path: '/executives' },
+    { name: 'AI Executives', path: '/ai-executives' },
   ];
   
   return (
@@ -29,7 +30,7 @@ const MainLayout: React.FC = () => {
                   to={item.path}
                   className={`flex items-center px-4 py-3 text-gray-700 ${
                     (location.pathname === item.path || 
-                    (item.path === '/' && location.pathname === '/')) 
+                    (item.path === '/conversations' && location.pathname === '/')) 
                     ? 'bg-primary-50 text-primary-600 border-r-4 border-primary-500' 
                     : 'hover:bg-gray-50'
                   }`}
@@ -45,12 +46,12 @@ const MainLayout: React.FC = () => {
         <div className="absolute bottom-0 w-64 p-4 border-t bg-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-gray-700">{user?.full_name || user?.email}</p>
-              <p className="text-xs text-gray-500">{user?.is_superuser ? 'Administrator' : 'User'}</p>
+              <p className="text-sm font-medium text-gray-700">{auth?.user?.full_name || auth?.user?.email}</p>
+              <p className="text-xs text-gray-500">{auth?.user?.is_superuser ? 'Administrator' : 'User'}</p>
             </div>
             
             <button
-              onClick={logout}
+              onClick={auth?.logout}
               className="text-sm text-gray-600 hover:text-gray-900"
             >
               Logout
@@ -65,7 +66,7 @@ const MainLayout: React.FC = () => {
           <h2 className="text-xl font-semibold text-gray-800">
             {navItems.find(item => 
               item.path === location.pathname || 
-              (item.path === '/' && location.pathname === '/')
+              (item.path === '/conversations' && location.pathname === '/')
             )?.name || 'Page'}
           </h2>
         </header>

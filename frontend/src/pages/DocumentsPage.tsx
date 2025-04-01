@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
 import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
 
 interface Document {
   id: number;
@@ -15,8 +14,8 @@ interface Document {
 
 const DocumentsPage: React.FC = () => {
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState('');
   
   // 上传状态
@@ -28,29 +27,29 @@ const DocumentsPage: React.FC = () => {
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
   
-  const { isAuthenticated } = useAuth();
+  const auth = useAuth();
   
   // 获取文档列表
   const fetchDocuments = async () => {
     try {
-      setLoading(true);
-      const response = await axios.get(`${API_URL}/documents/`);
+      setIsLoading(true);
+      const response = await api.get('/documents/');
       setDocuments(response.data);
       setError('');
     } catch (err: any) {
       setError('获取文档列表失败');
       console.error(err);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
   
   // 初始加载文档
   useEffect(() => {
-    if (isAuthenticated) {
+    if (auth?.isAuthenticated) {
       fetchDocuments();
     }
-  }, [isAuthenticated]);
+  }, [auth?.isAuthenticated]);
   
   // 处理文件选择
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,7 +79,7 @@ const DocumentsPage: React.FC = () => {
         formData.append('description', description);
       }
       
-      await axios.post(`${API_URL}/documents/`, formData, {
+      await api.post('/documents/', formData, {
         headers: {
           'Content-Type': 'multipart/form-data'
         },
@@ -120,7 +119,7 @@ const DocumentsPage: React.FC = () => {
     }
     
     try {
-      await axios.delete(`${API_URL}/documents/${id}`);
+      await api.delete(`/documents/${id}`);
       setSuccess('文档删除成功');
       
       // 从列表中移除已删除的文档
@@ -144,10 +143,34 @@ const DocumentsPage: React.FC = () => {
         return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-green-100 text-green-800';
+      case 'text_only':
+        return 'bg-purple-100 text-purple-800';
+      case 'partial':
+        return 'bg-orange-100 text-orange-800';
       case 'error':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
+    }
+  };
+  
+  // 获取状态文本
+  const getStatusText = (status: string) => {
+    switch (status) {
+      case 'pending':
+        return '待处理';
+      case 'processing':
+        return '处理中';
+      case 'completed':
+        return '处理完成';
+      case 'text_only':
+        return '仅文本';
+      case 'partial':
+        return '部分完成';
+      case 'error':
+        return '处理失败';
+      default:
+        return status;
     }
   };
   
@@ -237,7 +260,7 @@ const DocumentsPage: React.FC = () => {
           <h2 className="text-lg font-medium text-gray-900">已上传文档</h2>
         </div>
         
-        {loading ? (
+        {isLoading ? (
           <div className="p-6 text-center text-gray-500">加载中...</div>
         ) : documents.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
@@ -255,11 +278,7 @@ const DocumentsPage: React.FC = () => {
                     
                     <div className="mt-1 flex items-center">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(doc.processing_status)}`}>
-                        {doc.processing_status === 'pending' && '待处理'}
-                        {doc.processing_status === 'processing' && '处理中'}
-                        {doc.processing_status === 'completed' && '处理完成'}
-                        {doc.processing_status === 'error' && '处理失败'}
-                        {!['pending', 'processing', 'completed', 'error'].includes(doc.processing_status) && doc.processing_status}
+                        {getStatusText(doc.processing_status)}
                       </span>
                       
                       <span className="ml-2 text-xs text-gray-500">

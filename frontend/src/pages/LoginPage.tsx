@@ -14,31 +14,22 @@ const LoginPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   
   const navigate = useNavigate();
-  const { login, isAuthenticated } = useAuth();
+  const auth = useAuth();
   
   // If already authenticated, redirect to home
-  if (isAuthenticated) {
-    return <Navigate to="/" />;
+  if (auth?.isAuthenticated) {
+    return <Navigate to="/" replace />;
   }
   
-  const handleLoginSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
-    setSuccess('');
-    setIsLoading(true);
     
     try {
-      const success = await login(email, password);
-      
-      if (success) {
-        navigate('/');
-      } else {
-        setError('Invalid email or password');
-      }
-    } catch (err) {
-      setError('An error occurred during login');
-    } finally {
-      setIsLoading(false);
+      await auth?.login(email, password);
+      navigate('/');
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Login failed');
     }
   };
 
@@ -90,7 +81,7 @@ const LoginPage: React.FC = () => {
           </p>
         </div>
         
-        <form className="mt-8 space-y-6" onSubmit={isLogin ? handleLoginSubmit : handleRegisterSubmit}>
+        <form className="mt-8 space-y-6" onSubmit={isLogin ? handleSubmit : handleRegisterSubmit}>
           {error && (
             <div className="rounded-md bg-red-50 p-4">
               <div className="text-sm text-red-700">{error}</div>

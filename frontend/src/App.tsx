@@ -9,6 +9,7 @@ import LoginPage from './pages/LoginPage';
 import ChatPage from './pages/ChatPage';
 import DocumentsPage from './pages/DocumentsPage';
 import AIExecutivesPage from './pages/AIExecutivesPage';
+import ConversationsPage from './pages/ConversationsPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 // Auth context
@@ -16,9 +17,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 
 // Protected route component
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { isAuthenticated } = useAuth();
+  const auth = useAuth();
   
-  if (!isAuthenticated) {
+  if (!auth?.isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
   
@@ -37,7 +38,8 @@ function AppRoutes() {
       }>
         <Route index element={<ChatPage />} />
         <Route path="documents" element={<DocumentsPage />} />
-        <Route path="executives" element={<AIExecutivesPage />} />
+        <Route path="ai-executives" element={<AIExecutivesPage />} />
+        <Route path="conversations" element={<ConversationsPage />} />
       </Route>
       
       <Route path="*" element={<NotFoundPage />} />

@@ -1,203 +1,175 @@
-import React, { useState, useRef, useEffect } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-
-interface Message {
-  id: number;
-  content: string;
-  sender_type: 'user' | 'ai_ceo' | 'system';
-  created_at: string;
-}
-
-interface Conversation {
-  id: number;
-  title: string;
-  messages: Message[];
-}
+import api from '../services/api';
+import { Message } from '../types';
+import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Card } from '../components/ui/card';
+import { ScrollArea } from '../components/ui/scroll-area';
+import { Loader2, Send } from 'lucide-react';
 
 const ChatPage: React.FC = () => {
-  const [conversations, setConversations] = useState<Conversation[]>([]);
-  const [currentConversation, setCurrentConversation] = useState<Conversation | null>(null);
-  const [inputMessage, setInputMessage] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const { user } = useAuth();
-  
-  // Fetch user conversations on component mount
+  const navigate = useNavigate();
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+
+  // 初始化聊天，创建一个与 CEO 的对话
   useEffect(() => {
-    const fetchConversations = async () => {
-      try {
-        const response = await axios.get(`${API_URL}/conversations?user_id=${user?.id}`);
-        setConversations(response.data);
-        
-        // If there are conversations, set the most recent one as current
-        if (response.data.length > 0) {
-          setCurrentConversation(response.data[0]);
-        }
-      } catch (error) {
-        console.error('Error fetching conversations', error);
-      }
-    };
-    
-    if (user) {
-      fetchConversations();
-    }
-  }, [user]);
-  
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-  }, [currentConversation?.messages]);
-  
-  // Create a new conversation
-  const createNewConversation = async () => {
-    try {
-      const response = await axios.post(`${API_URL}/conversations`, {
-        user_id: user?.id,
-        title: 'New Conversation'
-      });
-      
-      const newConversation = response.data;
-      setConversations([newConversation, ...conversations]);
-      setCurrentConversation(newConversation);
-    } catch (error) {
-      console.error('Error creating conversation', error);
-    }
-  };
-  
-  // Send a message
-  const sendMessage = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!inputMessage.trim() || !currentConversation || isLoading) {
+    if (!user) {
+      navigate('/login');
       return;
     }
     
-    setIsLoading(true);
-    
+    // 创建或获取与 CEO 的对话
+    initializeChatWithCEO();
+  }, [user, navigate]);
+
+  const initializeChatWithCEO = async () => {
     try {
-      // Send user message
-      const response = await axios.post(`${API_URL}/conversations/${currentConversation.id}/messages`, {
-        content: inputMessage,
-        sender_type: 'user',
-        conversation_id: currentConversation.id
-      });
+      setIsLoading(true);
       
-      // Update current conversation with the new message
-      const updatedConversation = {
-        ...currentConversation,
-        messages: [...currentConversation.messages, response.data]
-      };
+      // 首先查找是否已经有与 CEO 的对话
+      const response = await api.get('/conversations');
+      const conversations = response.data;
       
-      setCurrentConversation(updatedConversation);
-      setInputMessage('');
+      let ceoChatId = null;
       
-      // Trigger AI CEO response
-      const taskResponse = await axios.post(`${API_URL}/conversations/${currentConversation.id}/task`, {
-        task_description: inputMessage,
-        conversation_id: currentConversation.id
-      });
+      // 查找标题中包含 "CEO" 的对话
+      const ceoChat = conversations.find((conv: any) => 
+        conv.title.includes('CEO') || conv.title.includes('首席执行官')
+      );
       
-      // Update the conversation again with AI response
-      const conversationResponse = await axios.get(`${API_URL}/conversations/${currentConversation.id}`);
-      setCurrentConversation(conversationResponse.data);
+      if (ceoChat) {
+        // 如果找到了 CEO 的对话，直接使用
+        ceoChatId = ceoChat.id;
+      } else {
+        // 如果没有找到，则创建一个新的 CEO 对话
+        const createResponse = await api.post('/conversations', {
+          title: '与 CEO 的对话',
+          user_id: user?.id
+        });
+        ceoChatId = createResponse.data.id;
+      }
       
-      // Update conversations list
-      const conversationsResponse = await axios.get(`${API_URL}/conversations?user_id=${user?.id}`);
-      setConversations(conversationsResponse.data);
+      // 设置当前的对话 ID
+      setConversationId(ceoChatId);
+      
+      // 获取对话历史
+      if (ceoChatId) {
+        const messageResponse = await api.get(`/conversations/${ceoChatId}`);
+        if (messageResponse.data.messages) {
+          setMessages(messageResponse.data.messages);
+        }
+      }
     } catch (error) {
-      console.error('Error sending message', error);
+      console.error('初始化与 CEO 对话失败:', error);
     } finally {
       setIsLoading(false);
     }
   };
-  
+
+  const handleSubmitMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMessage.trim() || !conversationId || isLoading) return;
+
+    try {
+      setIsLoading(true);
+      setNewMessage('');
+
+      // 发送用户消息
+      const response = await api.post(`/conversations/${conversationId}/messages`, {
+        content: newMessage
+      });
+      
+      // 更新消息列表
+      if (response.data.user_message && response.data.ai_message) {
+        setMessages(prev => [
+          ...prev, 
+          response.data.user_message, 
+          response.data.ai_message
+        ]);
+      }
+      
+    } catch (error) {
+      console.error('发送消息失败:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
-    <div className="h-full flex flex-col">
-      {/* Conversation header with new chat button */}
-      <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-medium">
-          {currentConversation ? currentConversation.title : 'New Conversation'}
-        </h3>
-        <button
-          onClick={createNewConversation}
-          className="px-3 py-1 bg-primary-600 text-white rounded hover:bg-primary-700 text-sm"
-        >
-          New Chat
-        </button>
+    <div className="flex h-screen flex-col">
+      <div className="p-4 border-b">
+        <h1 className="text-xl font-bold">与 CEO 的对话</h1>
       </div>
       
-      {/* Chat messages area */}
-      <div className="flex-1 overflow-y-auto bg-white rounded-lg shadow p-4 mb-4">
-        {currentConversation ? (
-          currentConversation.messages.length > 0 ? (
-            <div className="space-y-4">
-              {currentConversation.messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={`p-3 rounded-lg ${
-                    message.sender_type === 'user'
-                      ? 'bg-primary-100 ml-auto max-w-3xl'
-                      : message.sender_type === 'system'
-                      ? 'bg-gray-100 max-w-3xl'
-                      : 'bg-secondary-100 max-w-3xl'
-                  }`}
-                >
-                  <p className="text-sm font-medium mb-1">
-                    {message.sender_type === 'user'
-                      ? 'You'
-                      : message.sender_type === 'system'
-                      ? 'System'
-                      : 'AI CEO'}
-                  </p>
-                  <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                </div>
-              ))}
-              <div ref={messagesEndRef} />
+      {/* 聊天区域 */}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className={`flex ${
+                message.sender_type === 'USER' ? 'justify-end' : 'justify-start'
+              }`}
+            >
+              <div
+                className={`max-w-[70%] rounded-lg p-3 ${
+                  message.sender_type === 'USER'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'bg-muted'
+                }`}
+              >
+                {message.sender_type === 'AI' && message.sender_name && (
+                  <div className="font-bold mb-1">
+                    {message.sender_name}
+                    {message.sender_role && ` (${message.sender_role})`}
+                  </div>
+                )}
+                <p className="text-sm">{message.content}</p>
+                <p className="text-xs mt-1 opacity-70">
+                  {new Date(message.created_at).toLocaleString()}
+                </p>
+              </div>
             </div>
-          ) : (
-            <div className="h-full flex items-center justify-center">
-              <p className="text-gray-500">
-                Start a conversation with your AI CEO
-              </p>
+          ))}
+          
+          {isLoading && (
+            <div className="flex justify-center">
+              <Loader2 className="h-6 w-6 animate-spin" />
             </div>
-          )
-        ) : (
-          <div className="h-full flex items-center justify-center">
-            <p className="text-gray-500">
-              Create a new conversation to get started
-            </p>
-          </div>
-        )}
-      </div>
-      
-      {/* Message input area */}
-      <div className="bg-white rounded-lg shadow p-4">
-        <form onSubmit={sendMessage} className="flex">
-          <input
-            type="text"
-            value={inputMessage}
-            onChange={(e) => setInputMessage(e.target.value)}
-            placeholder="Type your message here..."
-            disabled={!currentConversation || isLoading}
-            className="flex-1 border border-gray-300 rounded-l-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500"
+          )}
+        </div>
+      </ScrollArea>
+
+      {/* 消息输入区域 */}
+      <form onSubmit={handleSubmitMessage} className="p-4 border-t">
+        <div className="flex gap-2">
+          <Input
+            value={newMessage}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMessage(e.target.value)}
+            placeholder="输入消息..."
+            disabled={isLoading}
           />
-          <button
-            type="submit"
-            disabled={!currentConversation || isLoading}
-            className={`px-4 py-2 rounded-r-lg ${
-              !currentConversation || isLoading
-                ? 'bg-gray-300 cursor-not-allowed'
-                : 'bg-primary-600 hover:bg-primary-700 text-white'
-            }`}
-          >
-            {isLoading ? 'Sending...' : 'Send'}
-          </button>
-        </form>
-      </div>
+          <Button type="submit" disabled={isLoading || !newMessage.trim()}>
+            {isLoading ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                发送中...
+              </>
+            ) : (
+              <>
+                <Send className="mr-2 h-4 w-4" />
+                发送
+              </>
+            )}
+          </Button>
+        </div>
+      </form>
     </div>
   );
 };

@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.api.routes import router
 from app.core.config import settings
 
@@ -22,6 +23,10 @@ def create_app() -> FastAPI:
 
     # Include API router
     app.include_router(router, prefix=settings.API_V1_STR)
+    
+    # 挂载静态文件夹
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
     @app.get("/")
     async def root():

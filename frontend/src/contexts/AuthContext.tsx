@@ -1,122 +1,115 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
-import axios from 'axios';
-import { API_URL } from '../config';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import api from '../services/api';
 
 // Types
 interface User {
   id: number;
+  username: string;
   email: string;
-  full_name?: string;
+  is_active: boolean;
   is_superuser: boolean;
+  full_name?: string;
 }
 
 interface AuthContextType {
-  isAuthenticated: boolean;
   user: User | null;
-  login: (email: string, password: string) => Promise<boolean>;
-  logout: () => void;
+  isAuthenticated: boolean;
+  login: (username: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
   isLoading: boolean;
 }
 
-// Create context
-const AuthContext = createContext<AuthContextType>({
-  isAuthenticated: false,
-  user: null,
-  login: async () => false,
-  logout: () => {},
-  isLoading: true,
-});
+// 创建认证上下文
+export const AuthContext = createContext<AuthContextType | null>(null);
 
-// Context provider
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Check if user is already logged in
+  // 计算 isAuthenticated
+  const isAuthenticated = !!user;
+
   useEffect(() => {
-    const checkAuth = async () => {
-      const token = localStorage.getItem('token');
-      
-      if (token) {
-        try {
-          // Set default auth header
-          axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-          
-          // Try to get user profile
-          const userId = localStorage.getItem('user_id');
-          const response = await axios.get(`${API_URL}/users/${userId}`);
-          
-          setUser(response.data);
-        } catch (error) {
-          // If request fails, token is invalid
-          localStorage.removeItem('token');
-          localStorage.removeItem('user_id');
-          axios.defaults.headers.common['Authorization'] = '';
-        }
-      }
-      
+    const token = localStorage.getItem('token');
+    if (token) {
+      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      fetchUser();
+    } else {
       setIsLoading(false);
-    };
-    
-    checkAuth();
+    }
   }, []);
 
-  // Login function
-  const login = async (email: string, password: string) => {
+  const fetchUser = async () => {
     try {
-      // 使用FormData格式发送请求，这是OAuth2PasswordRequestForm要求的格式
-      const formData = new FormData();
-      formData.append('username', email);
+      const response = await api.get('/users/me');
+      setUser(response.data);
+    } catch (error) {
+      console.error('获取用户信息失败:', error);
+      localStorage.removeItem('token');
+      delete api.defaults.headers.common['Authorization'];
+      setUser(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (username: string, password: string) => {
+    try {
+      // 创建URL编码的表单数据
+      const formData = new URLSearchParams();
+      formData.append('username', username);
       formData.append('password', password);
       
-      const response = await axios.post(`${API_URL}/auth/login/access-token`, formData, {
+      // 发送表单格式的请求
+      const response = await api.post('/auth/login/access-token', formData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         }
       });
       
-      const { access_token, user_id } = response.data;
+      const { access_token, user_id, email, is_superuser } = response.data;
       
-      // Store token and user info
+      // 从响应中构造用户对象
+      const userData: User = {
+        id: user_id,
+        username: username,
+        email: email,
+        is_active: true,
+        is_superuser: is_superuser
+      };
+      
       localStorage.setItem('token', access_token);
-      localStorage.setItem('user_id', user_id);
-      
-      // Set auth header
-      axios.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
-      
-      // Get user profile
-      const userResponse = await axios.get(`${API_URL}/users/${user_id}`);
-      setUser(userResponse.data);
-      
-      return true;
+      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
+      setUser(userData);
     } catch (error) {
-      console.error('Login error:', error);
-      return false;
+      console.error('登录失败:', error);
+      throw error;
     }
   };
 
-  // Logout function
-  const logout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user_id');
-    axios.defaults.headers.common['Authorization'] = '';
-    setUser(null);
+  const logout = async () => {
+    try {
+      await api.post('/auth/logout');
+      localStorage.removeItem('token');
+      delete api.defaults.headers.common['Authorization'];
+      setUser(null);
+    } catch (error) {
+      console.error('登出失败:', error);
+      throw error;
+    }
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        isAuthenticated: !!user,
-        user,
-        login,
-        logout,
-        isLoading,
-      }}
-    >
+    <AuthContext.Provider value={{ user, isAuthenticated, login, logout, isLoading }}>
       {children}
     </AuthContext.Provider>
   );
-};
-
-// Custom hook to use auth context
-export const useAuth = () => useContext(AuthContext); 
+}; 
