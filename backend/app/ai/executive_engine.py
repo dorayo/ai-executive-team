@@ -14,7 +14,7 @@ from datetime import datetime
 from app.core.config import settings
 from app.models.ai_executive import AIExecutive
 from app.models.document import Document
-from app.knowledge.vector_store import search_vectors
+from app.knowledge.vector_store import search_vectors, get_vector_store_status
 
 logger = logging.getLogger(__name__)
 
@@ -54,25 +54,48 @@ class ExecutiveEngine:
         def search_knowledge_base(query: str) -> str:
             """在知识库中搜索相关信息"""
             try:
-                if not settings.PINECONE_API_KEY:
-                    return "未配置向量检索API，无法搜索知识库。"
+                # 检查向量存储状态
+                vector_status = get_vector_store_status()
+                if vector_status["status"] != "ok":
+                    return f"向量数据库状态: {vector_status['status']}，暂时无法搜索知识库。{vector_status.get('error', '')}"
                 
-                results = search_vectors(query, top_k=3)
+                # 执行搜索
+                results = search_vectors(query, top_k=5)
                 if not results:
-                    return "未找到相关信息。"
+                    return "未找到相关信息。您可以尝试换一种方式提问，或者确认知识库中是否有相关文档。"
                 
+                # 格式化结果
                 formatted_results = []
                 for i, result in enumerate(results):
-                    formatted_results.append(
-                        f"{i+1}. 文档: {result['document_title']}\n"
-                        f"   相关度: {result['score']:.2f}\n"
-                        f"   内容: {result['text']}\n"
+                    # 计算匹配度百分比
+                    score_percent = int(result["score"] * 100)
+                    
+                    # 获取文档标题和文本
+                    doc_title = result.get("document_title", "未知文档")
+                    text = result.get("text", "").strip()
+                    
+                    # 添加页码信息（如果有）
+                    page_info = ""
+                    if result.get("page_number"):
+                        page_info = f"页码: {result.get('page_number')}, "
+                    
+                    formatted_result = (
+                        f"{i+1}. 文档: {doc_title} ({page_info}匹配度: {score_percent}%)\n"
+                        f"   内容: {text}\n"
                     )
+                    formatted_results.append(formatted_result)
                 
-                return "\n".join(formatted_results)
+                # 构建完整响应
+                response = "搜索结果:\n\n" + "\n".join(formatted_results)
+                
+                if len(results) > 0 and results[0]["score"] < 0.75:
+                    response += "\n\n注意: 匹配度较低，请谨慎使用这些信息。"
+                
+                return response
+                
             except Exception as e:
                 logger.error(f"知识库搜索失败: {str(e)}")
-                return f"知识库搜索错误: {str(e)}"
+                return f"知识库搜索过程中发生错误: {str(e)}。请稍后再试，或联系管理员检查系统日志。"
         
         # 日期工具
         @tool

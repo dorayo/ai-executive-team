@@ -1,21 +1,27 @@
 import os
 import uuid
+import logging
+import asyncio
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Tuple
-from fastapi import UploadFile, HTTPException
+from fastapi import UploadFile, HTTPException, BackgroundTasks
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.models.document import Document
-from app.knowledge.vector_store import add_documents
+from app.knowledge.document_processor import (
+    extract_text_from_file, 
+    process_document,
+    get_document_summary,
+    SUPPORTED_EXTENSIONS
+)
+from app.knowledge.vector_store import delete_document_vectors, get_vector_store_status
 
-# 支持的文档类型
-SUPPORTED_CONTENT_TYPES = {
-    "application/pdf": "pdf",
-    "text/plain": "text",
-    "text/html": "html",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx"
-}
+# 设置日志记录器
+logger = logging.getLogger(__name__)
+
+# 确保上传目录存在
+os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 
 async def save_upload_file(upload_file: UploadFile) -> Tuple[str, str]:
     """
@@ -29,11 +35,20 @@ async def save_upload_file(upload_file: UploadFile) -> Tuple[str, str]:
     """
     content_type = upload_file.content_type
     
-    # 检查文件类型
-    if content_type not in SUPPORTED_CONTENT_TYPES:
+    # 检查文件类型是否支持
+    file_extension = os.path.splitext(upload_file.filename or "")[1].lower()
+    
+    if not file_extension:
         raise HTTPException(
             status_code=400,
-            detail=f"不支持的文件类型: {content_type}。支持的类型: {', '.join(SUPPORTED_CONTENT_TYPES.keys())}"
+            detail="无法确定文件扩展名"
+        )
+    
+    if file_extension not in SUPPORTED_EXTENSIONS and content_type not in SUPPORTED_EXTENSIONS.values():
+        supported_exts = ", ".join(SUPPORTED_EXTENSIONS.keys())
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: {file_extension or content_type}。支持的类型: {supported_exts}"
         )
     
     # 创建文件存储目录
@@ -41,7 +56,6 @@ async def save_upload_file(upload_file: UploadFile) -> Tuple[str, str]:
     os.makedirs(upload_dir, exist_ok=True)
     
     # 生成唯一文件名
-    file_extension = os.path.splitext(upload_file.filename)[1]
     unique_filename = f"{uuid.uuid4()}{file_extension}"
     file_path = os.path.join(upload_dir, unique_filename)
     
@@ -50,147 +64,107 @@ async def save_upload_file(upload_file: UploadFile) -> Tuple[str, str]:
         content = await upload_file.read()
         f.write(content)
     
+    logger.info(f"已保存文件: {file_path}, 类型: {content_type}")
     return file_path, content_type
 
-def extract_text_from_file(file_path: str, content_type: str) -> str:
+async def process_document_async(db: Session, doc_id: int) -> None:
     """
-    从文件中提取文本
+    异步处理文档
     
     Args:
-        file_path: 文件路径
-        content_type: 文件内容类型
-        
-    Returns:
-        提取的文本内容
+        db: 数据库会话
+        doc_id: 文档ID
     """
-    file_type = SUPPORTED_CONTENT_TYPES.get(content_type)
+    # 获取文档
+    doc = get_document(db, doc_id)
+    if not doc:
+        logger.error(f"找不到文档 ID {doc_id}")
+        return
     
-    if file_type == "pdf":
-        return extract_text_from_pdf(file_path)
-    elif file_type == "text":
-        return extract_text_from_text(file_path)
-    elif file_type == "docx":
-        return extract_text_from_docx(file_path)
-    elif file_type == "html":
-        return extract_text_from_html(file_path)
-    else:
-        raise ValueError(f"不支持的文件类型: {content_type}")
-
-def extract_text_from_pdf(file_path: str) -> str:
-    """从PDF文件中提取文本"""
     try:
-        from pypdf import PdfReader
+        # 更新状态为处理中
+        doc.processing_status = "processing"
+        db.commit()
         
-        reader = PdfReader(file_path)
-        text = ""
+        # 提取文本
+        text = extract_text_from_file(doc.file_path, doc.content_type)
         
-        for page in reader.pages:
-            text += page.extract_text() + "\n\n"
+        # 为较小的文档存储内容
+        if len(text) <= 100000:  # 大约10万字符(约20页)
+            doc.content = text
+        else:
+            # 对于大型文档，只存储摘要
+            doc.content = get_document_summary(text, max_length=5000)
+        
+        # 更新数据库
+        db.commit()
+        
+        # 检查向量存储状态
+        vector_store_status = get_vector_store_status()
+        if vector_store_status["status"] == "not_configured":
+            doc.processing_status = "text_only"
+            doc.processing_error = "未配置向量存储，只保存了文本内容"
+            db.commit()
+            logger.warning(f"文档 {doc_id} 只保存了文本，未配置向量存储")
+            return
+        
+        # 处理文档并添加到向量存储
+        vector_ids, failed_texts, status = process_document(
+            document_id=doc.id,
+            document_title=doc.title,
+            text_content=text,
+            namespace="default"
+        )
+        
+        # 根据处理结果更新文档状态
+        if status == "completed":
+            doc.vector_ids = ",".join(vector_ids)
+            doc.processing_status = "completed"
+            logger.info(f"文档 {doc_id} 处理完成，生成了 {len(vector_ids)} 个向量")
+        
+        elif status == "partial":
+            doc.vector_ids = ",".join(vector_ids)
+            doc.processing_status = "partial"
+            doc.processing_error = f"部分文本块处理失败，成功率: {len(vector_ids)}/{len(vector_ids) + len(failed_texts)}"
+            logger.warning(f"文档 {doc_id} 部分处理完成: {len(vector_ids)} 成功, {len(failed_texts)} 失败")
+        
+        elif status == "api_key_missing":
+            doc.processing_status = "text_only"
+            doc.processing_error = "未配置向量存储 API 密钥，只保存了文本内容"
+            logger.warning(f"文档 {doc_id} 只保存了文本，未配置 API 密钥")
             
-        return text
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"PDF文本提取失败: {str(e)}"
-        )
-
-def extract_text_from_text(file_path: str) -> str:
-    """从文本文件中提取文本"""
-    try:
-        with open(file_path, "r", encoding="utf-8") as f:
-            return f.read()
-    except UnicodeDecodeError:
-        # 尝试不同的编码
-        try:
-            with open(file_path, "r", encoding="latin-1") as f:
-                return f.read()
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"文本文件读取失败: {str(e)}"
-            )
-
-def extract_text_from_docx(file_path: str) -> str:
-    """从DOCX文件中提取文本"""
-    try:
-        import docx
-        
-        doc = docx.Document(file_path)
-        text = ""
-        
-        for para in doc.paragraphs:
-            text += para.text + "\n"
+        elif status == "no_chunks":
+            doc.processing_status = "text_only"
+            doc.processing_error = "文本分割失败，未生成文本块"
+            logger.warning(f"文档 {doc_id} 文本分割失败")
             
-        return text
+        else:  # "failed"
+            doc.processing_status = "error"
+            doc.processing_error = "向量化处理失败"
+            logger.error(f"文档 {doc_id} 向量化处理失败")
+        
+        # 更新数据库
+        db.commit()
+        
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"DOCX文本提取失败: {str(e)}"
-        )
-
-def extract_text_from_html(file_path: str) -> str:
-    """从HTML文件中提取文本"""
-    try:
-        from bs4 import BeautifulSoup
+        # 如果处理失败，仍保留文档记录，但设置错误标记
+        error_msg = str(e)
+        logger.error(f"处理文档 {doc_id} 时出错: {error_msg}")
         
-        with open(file_path, "r", encoding="utf-8") as f:
-            soup = BeautifulSoup(f.read(), "html.parser")
-            return soup.get_text()
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"HTML文本提取失败: {str(e)}"
-        )
-
-def chunk_text(text: str, chunk_size: int = 1000, chunk_overlap: int = 200) -> List[str]:
-    """
-    将文本分割成较小的块
-    
-    Args:
-        text: 完整文本
-        chunk_size: 每个块的最大大小(字符数)
-        chunk_overlap: 块之间的重叠(字符数)
-        
-    Returns:
-        文本块列表
-    """
-    if not text:
-        return []
-        
-    chunks = []
-    start = 0
-    
-    while start < len(text):
-        # 找到块的结束位置
-        end = min(start + chunk_size, len(text))
-        
-        # 如果不是最后一个块，尝试在句子边界处分割
-        if end < len(text):
-            # 向后寻找句子结束标记
-            for i in range(end, max(end - chunk_overlap, start), -1):
-                if i < len(text) and text[i] in ['.', '!', '?', '\n'] and (i + 1 >= len(text) or text[i + 1] == ' '):
-                    end = i + 1
-                    break
-        
-        # 添加块
-        chunk = text[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        
-        # 向前移动，考虑重叠
-        start = end - chunk_overlap if end - chunk_overlap > start else start + 1
-    
-    return chunks
+        doc.processing_status = "error"
+        doc.processing_error = error_msg
+        db.commit()
 
 async def create_document(
     db: Session,
     file: UploadFile,
     title: str,
     description: Optional[str] = None,
-    user_id: Optional[int] = None
+    user_id: Optional[int] = None,
+    background_tasks: Optional[BackgroundTasks] = None
 ) -> Document:
     """
-    创建新文档，处理文件，并存储向量
+    创建新文档并安排处理任务
     
     Args:
         db: 数据库会话
@@ -198,6 +172,7 @@ async def create_document(
         title: 文档标题
         description: 文档描述
         user_id: 上传用户ID
+        background_tasks: 用于添加后台任务的对象
         
     Returns:
         创建的文档对象
@@ -219,60 +194,12 @@ async def create_document(
     db.commit()
     db.refresh(doc)
     
-    # 提取文本
-    try:
-        # 更新状态为处理中
-        doc.processing_status = "processing"
-        db.commit()
-        
-        text = extract_text_from_file(file_path, content_type)
-        
-        # 为较小的文档存储内容
-        if len(text) <= 100000:  # 大约10万字符(约20页)
-            doc.content = text
-            db.commit()
-        
-        # 将文本分块
-        chunks = chunk_text(text)
-        
-        if chunks and settings.PINECONE_API_KEY:
-            try:
-                # 为每个块准备元数据
-                metadatas = [{
-                    "document_title": title,
-                    "document_id": doc.id,
-                    "chunk_index": i
-                } for i in range(len(chunks))]
-                
-                # 将文档添加到向量存储
-                vector_ids = add_documents(chunks, metadatas, doc.id)
-                
-                # 存储向量ID
-                doc.vector_ids = ",".join(vector_ids)
-                doc.processing_status = "completed"
-                db.commit()
-            except Exception as e:
-                # 捕获向量存储异常但继续
-                doc.processing_status = "partial"
-                doc.processing_error = f"向量存储失败，但文本内容已保存: {str(e)}"
-                db.commit()
-                print(f"向量存储失败: {str(e)}")
-        else:
-            # 没有块或没有API密钥，但文本处理成功
-            doc.processing_status = "text_only"
-            if not settings.PINECONE_API_KEY:
-                doc.processing_error = "未配置Pinecone API密钥，只保存了文本内容"
-            db.commit()
-    except Exception as e:
-        # 如果处理失败，仍保留文档记录，但设置错误标记
-        doc.processing_status = "error"
-        doc.processing_error = str(e)
-        db.commit()
-        
-        raise HTTPException(
-            status_code=500,
-            detail=f"文档处理失败: {str(e)}"
-        )
+    # 在后台处理文档
+    if background_tasks:
+        background_tasks.add_task(process_document_async, db, doc.id)
+    else:
+        # 如果没有提供 background_tasks，则立即创建异步任务
+        asyncio.create_task(process_document_async(db, doc.id))
     
     return doc
 
@@ -284,28 +211,117 @@ def get_documents(db: Session, skip: int = 0, limit: int = 100) -> List[Document
     """获取文档列表"""
     return db.query(Document).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
 
-def delete_document(db: Session, document_id: int) -> bool:
-    """删除文档"""
-    from app.knowledge.vector_store import delete_document_vectors
+def search_documents_by_keyword(db: Session, keyword: str, skip: int = 0, limit: int = 100) -> List[Document]:
+    """
+    通过关键字搜索文档（基于标题和描述）
     
+    Args:
+        db: 数据库会话
+        keyword: 搜索关键字
+        skip: 跳过的记录数
+        limit: 返回的记录限制
+        
+    Returns:
+        匹配的文档列表
+    """
+    search_term = f"%{keyword}%"
+    return db.query(Document).filter(
+        (Document.title.ilike(search_term)) | 
+        (Document.description.ilike(search_term))
+    ).order_by(Document.created_at.desc()).offset(skip).limit(limit).all()
+
+def get_document_content(db: Session, document_id: int) -> str:
+    """
+    获取文档内容
+    
+    Args:
+        db: 数据库会话
+        document_id: 文档ID
+        
+    Returns:
+        文档内容
+    """
+    doc = get_document(db, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+    
+    # 如果数据库中有存储内容，直接返回
+    if doc.content:
+        return doc.content
+    
+    # 否则尝试从文件中提取
+    try:
+        return extract_text_from_file(doc.file_path, doc.content_type)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"无法获取文档内容: {str(e)}")
+
+def delete_document(db: Session, document_id: int) -> bool:
+    """
+    删除文档
+    
+    Args:
+        db: 数据库会话
+        document_id: 文档ID
+        
+    Returns:
+        成功则返回 True
+    """
     doc = get_document(db, document_id)
     if not doc:
         return False
     
-    # 删除向量存储中的文档向量
-    if doc.vector_ids:
-        delete_document_vectors(doc.id)
+    try:
+        # 删除向量存储中的文档向量
+        if doc.vector_ids:
+            logger.info(f"删除文档 {document_id} 的向量")
+            delete_document_vectors(doc.id)
+        
+        # 删除文件
+        if doc.file_path and os.path.exists(doc.file_path):
+            try:
+                logger.info(f"删除文件: {doc.file_path}")
+                os.remove(doc.file_path)
+            except Exception as e:
+                # 即使文件删除失败，也继续删除数据库记录
+                logger.warning(f"删除文件失败: {doc.file_path}, 错误: {str(e)}")
+        
+        # 删除数据库记录
+        db.delete(doc)
+        db.commit()
+        logger.info(f"文档 {document_id} 已成功删除")
+        
+        return True
+    except Exception as e:
+        logger.error(f"删除文档 {document_id} 失败: {str(e)}")
+        return False
+
+def retry_document_processing(db: Session, document_id: int, background_tasks: Optional[BackgroundTasks] = None) -> bool:
+    """
+    重试文档处理
     
-    # 删除文件
-    if doc.file_path and os.path.exists(doc.file_path):
-        try:
-            os.remove(doc.file_path)
-        except Exception:
-            # 即使文件删除失败，也继续删除数据库记录
-            pass
+    Args:
+        db: 数据库会话
+        document_id: 文档ID
+        background_tasks: 用于添加后台任务的对象
+        
+    Returns:
+        成功则返回 True
+    """
+    doc = get_document(db, document_id)
+    if not doc:
+        return False
     
-    # 删除数据库记录
-    db.delete(doc)
+    # 重置处理状态
+    doc.processing_status = "pending"
+    doc.processing_error = None
+    doc.vector_ids = None
     db.commit()
+    
+    # 在后台重新处理文档
+    if background_tasks:
+        background_tasks.add_task(process_document_async, db, doc.id)
+    else:
+        # 如果没有提供 background_tasks，则立即创建异步任务
+        asyncio.create_task(process_document_async(db, doc.id))
     
     return True 

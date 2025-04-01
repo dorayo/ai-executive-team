@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import api from '../services/api';
+import { apiClient } from '../services/baseService';
 
 // Types
 interface User {
@@ -38,23 +38,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const isAuthenticated = !!user;
 
   useEffect(() => {
+    console.log('AuthProvider 初始化...');
     const token = localStorage.getItem('token');
     if (token) {
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      console.log('找到存储的 token，尝试获取用户信息...');
       fetchUser();
     } else {
+      console.log('未找到 token，未登录状态');
       setIsLoading(false);
     }
   }, []);
 
   const fetchUser = async () => {
     try {
-      const response = await api.get('/users/me');
+      console.log('正在获取用户信息...');
+      const response = await apiClient.get('/users/me');
+      console.log('获取用户信息成功:', response.data);
       setUser(response.data);
     } catch (error) {
       console.error('获取用户信息失败:', error);
+      console.log('清除 token，重置认证状态');
       localStorage.removeItem('token');
-      delete api.defaults.headers.common['Authorization'];
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -63,18 +67,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (username: string, password: string) => {
     try {
+      console.log(`尝试登录用户: ${username}`);
+      
       // 创建URL编码的表单数据
       const formData = new URLSearchParams();
       formData.append('username', username);
       formData.append('password', password);
       
       // 发送表单格式的请求
-      const response = await api.post('/auth/login/access-token', formData, {
+      const response = await apiClient.post('/auth/login/access-token', formData, {
         headers: {
           'Content-Type': 'application/x-www-form-urlencoded'
         }
       });
       
+      console.log('登录成功，获取到响应:', response.data);
       const { access_token, user_id, email, is_superuser } = response.data;
       
       // 从响应中构造用户对象
@@ -86,8 +93,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         is_superuser: is_superuser
       };
       
+      console.log('设置认证状态和 token');
       localStorage.setItem('token', access_token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${access_token}`;
       setUser(userData);
     } catch (error) {
       console.error('登录失败:', error);
@@ -97,12 +104,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      await api.post('/auth/logout');
+      console.log('尝试登出...');
+      await apiClient.post('/auth/logout');
+      console.log('登出成功，清除认证状态');
       localStorage.removeItem('token');
-      delete api.defaults.headers.common['Authorization'];
       setUser(null);
     } catch (error) {
       console.error('登出失败:', error);
+      // 即使登出API调用失败，也清除本地认证状态
+      localStorage.removeItem('token');
+      setUser(null);
       throw error;
     }
   };

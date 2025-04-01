@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 # Shared properties
@@ -52,22 +52,62 @@ class DocumentCreateResponse(BaseModel):
         from_attributes = True
 
 class DocumentSearchQuery(BaseModel):
-    """文档搜索查询"""
+    """文档关键字搜索查询"""
     query: str
-    top_k: int = 5
+    top_k: int = Field(default=5, ge=1, le=100)
+
+class VectorSearchQuery(BaseModel):
+    """向量搜索查询"""
+    query: str
+    top_k: int = Field(default=5, ge=1, le=50)
+    document_id: Optional[int] = None
+    filter_metadata: Optional[Dict[str, Any]] = None
 
 class DocumentSearchResult(BaseModel):
-    """文档搜索结果"""
+    """文档搜索结果项"""
     document_id: int
     document_title: str
-    text: str
+    text: Optional[str] = None
     score: float
-    page_number: Optional[int] = None
     
     class Config:
         from_attributes = True
 
 class DocumentSearchResponse(BaseModel):
     """文档搜索响应"""
-    query: str
-    results: List[DocumentSearchResult] 
+    id: int
+    title: str
+    description: Optional[str] = None
+    content_type: str
+    created_at: datetime
+    processing_status: str
+    
+    class Config:
+        from_attributes = True
+
+class VectorSearchResult(BaseModel):
+    """向量搜索结果项"""
+    document_id: int
+    document_title: str
+    text: str
+    score: float
+    page_number: Optional[int] = None
+    chunk_index: Optional[int] = None
+    
+    class Config:
+        from_attributes = True
+
+class ProcessStatusUpdate(BaseModel):
+    """处理状态更新请求"""
+    action: str = Field(..., description="要执行的操作，例如 'retry'")
+
+class VectorStoreStatusResponse(BaseModel):
+    """向量存储状态响应"""
+    status: str
+    last_check: float
+    error: Optional[str] = None
+    configured: bool
+
+class DocumentContentResponse(BaseModel):
+    """文档内容响应"""
+    content: str 

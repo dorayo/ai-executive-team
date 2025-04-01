@@ -1,18 +1,25 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { SearchInput } from '../components/ui/search-input';
+import { SearchResult, SearchResultItem } from '../components/ui/search-result';
 import { useAuth } from '../contexts/AuthContext';
-import api from '../services/api';
-
-interface Document {
-  id: number;
-  title: string;
-  description: string | null;
-  content_type: string;
-  created_at: string;
-  processing_status: string;
-  processing_error: string | null;
-}
+import { 
+  getDocuments, 
+  uploadDocument, 
+  deleteDocument, 
+  searchDocuments, 
+  vectorSearchDocuments, 
+  getVectorStoreStatus,
+  retryProcessDocument,
+  Document,
+  VectorStoreStatus
+} from '../services/documentService';
 
 const DocumentsPage: React.FC = () => {
+  const navigate = useNavigate();
+  const auth = useAuth();
+
+  // 文档列表状态
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,30 +33,87 @@ const DocumentsPage: React.FC = () => {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
+
+  // 搜索相关状态
+  const [searchMode, setSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchType, setSearchType] = useState<'keyword' | 'vector'>('keyword');
+  const [searchResults, setSearchResults] = useState<SearchResultItem[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   
-  const auth = useAuth();
+  // 向量存储状态
+  const [vectorStoreStatus, setVectorStoreStatus] = useState<VectorStoreStatus | null>(null);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   
   // 获取文档列表
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (query?: string) => {
     try {
       setIsLoading(true);
-      const response = await api.get('/documents/');
-      setDocuments(response.data);
-      setError('');
+      setError(null); // 清除之前的错误信息
+      console.log('获取文档列表开始，查询参数:', query);
+      
+      const docs = await getDocuments(query);
+      console.log('文档列表获取成功，共获取:', docs.length, '项');
+      setDocuments(docs || []);
+      
     } catch (err: any) {
-      setError('获取文档列表失败');
-      console.error(err);
+      console.error('获取文档列表失败:', err);
+      
+      // 提供更详细的错误信息
+      let errorMessage = '获取文档列表失败';
+      
+      if (err.response) {
+        // 请求已发出，服务器返回了错误状态码
+        errorMessage += ` (${err.response.status})`;
+        
+        if (err.response.data && err.response.data.detail) {
+          errorMessage += `: ${err.response.data.detail}`;
+        }
+        
+        // 如果是认证问题
+        if (err.response.status === 401) {
+          errorMessage = '认证失败，请重新登录';
+        }
+      } else if (err.request) {
+        // 请求已发出，但没有收到响应
+        errorMessage = '服务器未响应，请检查网络连接';
+      } else {
+        // 发送请求时出错
+        errorMessage = `请求错误: ${err.message}`;
+      }
+      
+      setError(errorMessage);
+      setDocuments([]);
     } finally {
       setIsLoading(false);
     }
   };
   
-  // 初始加载文档
+  // 初始加载
   useEffect(() => {
     if (auth?.isAuthenticated) {
       fetchDocuments();
+      loadVectorStoreStatus();
     }
   }, [auth?.isAuthenticated]);
+  
+  // 加载向量存储状态
+  const loadVectorStoreStatus = async () => {
+    try {
+      setIsLoadingStatus(true);
+      const status = await getVectorStoreStatus();
+      setVectorStoreStatus(status);
+    } catch (err) {
+      console.error('获取向量存储状态失败：', err);
+      setVectorStoreStatus({
+        status: 'error',
+        error: '无法连接到向量存储'
+      });
+    } finally {
+      setIsLoadingStatus(false);
+    }
+  };
   
   // 处理文件选择
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,7 +134,7 @@ const DocumentsPage: React.FC = () => {
     try {
       setUploading(true);
       setUploadProgress(0);
-      setError('');
+      setError(null);
       
       const formData = new FormData();
       formData.append('file', file);
@@ -79,17 +143,7 @@ const DocumentsPage: React.FC = () => {
         formData.append('description', description);
       }
       
-      await api.post('/documents/', formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data'
-        },
-        onUploadProgress: (progressEvent) => {
-          if (progressEvent.total) {
-            const progress = Math.round((progressEvent.loaded * 100) / progressEvent.total);
-            setUploadProgress(progress);
-          }
-        }
-      });
+      await uploadDocument(formData);
       
       // 重置表单
       setTitle('');
@@ -119,7 +173,7 @@ const DocumentsPage: React.FC = () => {
     }
     
     try {
-      await api.delete(`/documents/${id}`);
+      await deleteDocument(id);
       setSuccess('文档删除成功');
       
       // 从列表中移除已删除的文档
@@ -133,7 +187,86 @@ const DocumentsPage: React.FC = () => {
       console.error(err);
     }
   };
+
+  // 重试文档处理
+  const handleRetry = async (id: number) => {
+    try {
+      setIsLoading(true);
+      await retryProcessDocument(id);
+      setSuccess('已重新提交文档处理请求');
+      
+      // 刷新文档列表
+      fetchDocuments();
+    } catch (err: any) {
+      if (err.response && err.response.data && err.response.data.detail) {
+        setError(err.response.data.detail);
+      } else {
+        setError('重试处理文档失败');
+      }
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
+  // 处理搜索
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) {
+      setSearchError('请输入搜索内容');
+      return;
+    }
+    
+    // 如果是简单关键词过滤，直接过滤文档列表
+    if (!searchMode) {
+      fetchDocuments(searchQuery);
+      return;
+    }
+    
+    // 高级搜索（向量或关键词）
+    try {
+      setIsSearching(true);
+      setSearchError(null);
+      
+      let results: SearchResultItem[];
+      
+      if (searchType === 'keyword') {
+        results = await searchDocuments({ query: searchQuery, top_k: 10 });
+      } else {
+        // 检查向量存储状态
+        if (!vectorStoreStatus || vectorStoreStatus.status !== 'ok') {
+          setSearchError('向量搜索功能不可用，请选择关键词搜索或联系管理员');
+          setIsSearching(false);
+          setSearchResults([]);
+          return;
+        }
+        results = await vectorSearchDocuments({ query: searchQuery, top_k: 10 });
+      }
+      
+      setSearchResults(results || []);
+    } catch (err: any) {
+      console.error('搜索失败：', err);
+      setSearchError(err.response?.data?.detail || '搜索失败，请稍后再试');
+      setSearchResults([]);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+  
+  // 查看文档详情
+  const handleViewDocument = (documentId: number) => {
+    navigate(`/documents/${documentId}`);
+  };
+  
+  // 切换搜索模式
+  const toggleSearchMode = () => {
+    setSearchMode(!searchMode);
+    if (!searchMode) {
+      setSearchResults([]);
+    } else {
+      fetchDocuments();
+    }
+  };
+
   // 处理状态标签颜色
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -143,11 +276,7 @@ const DocumentsPage: React.FC = () => {
         return 'bg-blue-100 text-blue-800';
       case 'completed':
         return 'bg-green-100 text-green-800';
-      case 'text_only':
-        return 'bg-purple-100 text-purple-800';
-      case 'partial':
-        return 'bg-orange-100 text-orange-800';
-      case 'error':
+      case 'failed':
         return 'bg-red-100 text-red-800';
       default:
         return 'bg-gray-100 text-gray-800';
@@ -163,11 +292,7 @@ const DocumentsPage: React.FC = () => {
         return '处理中';
       case 'completed':
         return '处理完成';
-      case 'text_only':
-        return '仅文本';
-      case 'partial':
-        return '部分完成';
-      case 'error':
+      case 'failed':
         return '处理失败';
       default:
         return status;
@@ -190,6 +315,35 @@ const DocumentsPage: React.FC = () => {
           {success}
         </div>
       )}
+      
+      {/* 搜索框 */}
+      <div className="bg-white rounded-lg shadow p-6 mb-6">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-medium text-gray-900">文档搜索</h2>
+          <button 
+            onClick={toggleSearchMode}
+            className="text-sm text-primary-600 hover:text-primary-800"
+          >
+            {searchMode ? '切换到简单搜索' : '切换到高级搜索'}
+          </button>
+        </div>
+        
+        <SearchInput
+          value={searchQuery}
+          onChange={setSearchQuery}
+          onSearch={handleSearch}
+          placeholder={searchMode ? "搜索文档内容..." : "过滤文档标题和描述..."}
+          isLoading={isSearching || isLoading}
+          searchType={searchType}
+          onSearchTypeChange={searchMode ? setSearchType : undefined}
+        />
+        
+        {searchMode && vectorStoreStatus && vectorStoreStatus.status === 'ok' && vectorStoreStatus.index_stats && (
+          <p className="mt-2 text-xs text-gray-500">
+            向量库中有 {vectorStoreStatus.index_stats.vector_count} 条记录可供搜索
+          </p>
+        )}
+      </div>
       
       {/* 上传表单 */}
       <div className="bg-white rounded-lg shadow p-6 mb-6">
@@ -254,21 +408,32 @@ const DocumentsPage: React.FC = () => {
         </form>
       </div>
       
-      {/* 文档列表 */}
+      {/* 搜索结果或文档列表 */}
       <div className="bg-white rounded-lg shadow overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-200">
-          <h2 className="text-lg font-medium text-gray-900">已上传文档</h2>
+          <h2 className="text-lg font-medium text-gray-900">
+            {searchMode && searchResults && searchResults.length > 0 ? '搜索结果' : '已上传文档'}
+          </h2>
         </div>
         
-        {isLoading ? (
+        {isLoading && !searchMode ? (
           <div className="p-6 text-center text-gray-500">加载中...</div>
-        ) : documents.length === 0 ? (
+        ) : searchMode && searchResults && searchResults.length > 0 ? (
+          <div className="p-6">
+            <SearchResult
+              results={searchResults}
+              isLoading={isSearching}
+              error={searchError}
+              onViewDocument={handleViewDocument}
+            />
+          </div>
+        ) : documents && documents.length === 0 ? (
           <div className="p-6 text-center text-gray-500">
             暂无文档，请上传新文档。
           </div>
         ) : (
           <ul className="divide-y divide-gray-200">
-            {documents.map((doc) => (
+            {documents && documents.map((doc) => (
               <li key={doc.id} className="px-6 py-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div className="flex-1 min-w-0">
@@ -277,8 +442,8 @@ const DocumentsPage: React.FC = () => {
                     </h3>
                     
                     <div className="mt-1 flex items-center">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(doc.processing_status)}`}>
-                        {getStatusText(doc.processing_status)}
+                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(doc.status)}`}>
+                        {getStatusText(doc.status)}
                       </span>
                       
                       <span className="ml-2 text-xs text-gray-500">
@@ -286,7 +451,7 @@ const DocumentsPage: React.FC = () => {
                       </span>
                       
                       <span className="ml-2 text-xs text-gray-500">
-                        {doc.content_type}
+                        {doc.file_type}
                       </span>
                     </div>
                     
@@ -296,14 +461,30 @@ const DocumentsPage: React.FC = () => {
                       </p>
                     )}
                     
-                    {doc.processing_error && (
+                    {doc.error_message && (
                       <p className="mt-1 text-sm text-red-500">
-                        错误: {doc.processing_error}
+                        错误: {doc.error_message}
                       </p>
                     )}
                   </div>
                   
-                  <div className="ml-4 flex-shrink-0 flex items-center space-x-2">
+                  <div className="ml-4 flex-shrink-0 flex items-center space-x-3">
+                    <button
+                      onClick={() => handleViewDocument(doc.id)}
+                      className="text-primary-600 hover:text-primary-900 text-sm font-medium"
+                    >
+                      查看
+                    </button>
+                    
+                    {doc.status === 'failed' && (
+                      <button
+                        onClick={() => handleRetry(doc.id)}
+                        className="text-blue-600 hover:text-blue-900 text-sm font-medium"
+                      >
+                        重试
+                      </button>
+                    )}
+                    
                     <button
                       onClick={() => handleDelete(doc.id)}
                       className="text-red-600 hover:text-red-900 text-sm font-medium"
