@@ -211,7 +211,8 @@ async def create_document(
         description=description,
         file_path=file_path,
         content_type=content_type,
-        uploaded_by=user_id
+        uploaded_by=user_id,
+        processing_status="pending"
     )
     
     db.add(doc)
@@ -220,6 +221,10 @@ async def create_document(
     
     # 提取文本
     try:
+        # 更新状态为处理中
+        doc.processing_status = "processing"
+        db.commit()
+        
         text = extract_text_from_file(file_path, content_type)
         
         # 为较小的文档存储内容
@@ -230,19 +235,33 @@ async def create_document(
         # 将文本分块
         chunks = chunk_text(text)
         
-        if chunks:
-            # 为每个块准备元数据
-            metadatas = [{
-                "document_title": title,
-                "document_id": doc.id,
-                "chunk_index": i
-            } for i in range(len(chunks))]
-            
-            # 将文档添加到向量存储
-            vector_ids = add_documents(chunks, metadatas, doc.id)
-            
-            # 存储向量ID
-            doc.vector_ids = ",".join(vector_ids)
+        if chunks and settings.PINECONE_API_KEY:
+            try:
+                # 为每个块准备元数据
+                metadatas = [{
+                    "document_title": title,
+                    "document_id": doc.id,
+                    "chunk_index": i
+                } for i in range(len(chunks))]
+                
+                # 将文档添加到向量存储
+                vector_ids = add_documents(chunks, metadatas, doc.id)
+                
+                # 存储向量ID
+                doc.vector_ids = ",".join(vector_ids)
+                doc.processing_status = "completed"
+                db.commit()
+            except Exception as e:
+                # 捕获向量存储异常但继续
+                doc.processing_status = "partial"
+                doc.processing_error = f"向量存储失败，但文本内容已保存: {str(e)}"
+                db.commit()
+                print(f"向量存储失败: {str(e)}")
+        else:
+            # 没有块或没有API密钥，但文本处理成功
+            doc.processing_status = "text_only"
+            if not settings.PINECONE_API_KEY:
+                doc.processing_error = "未配置Pinecone API密钥，只保存了文本内容"
             db.commit()
     except Exception as e:
         # 如果处理失败，仍保留文档记录，但设置错误标记

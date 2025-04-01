@@ -29,7 +29,7 @@ class DocumentInDBBase(DocumentBase):
     updated_at: Optional[datetime] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 # Additional properties to return via API
 class DocumentResponse(DocumentInDBBase):
@@ -49,7 +49,7 @@ class DocumentCreateResponse(BaseModel):
     message: str
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DocumentSearchQuery(BaseModel):
     """文档搜索查询"""
@@ -65,7 +65,7 @@ class DocumentSearchResult(BaseModel):
     page_number: Optional[int] = None
     
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class DocumentSearchResponse(BaseModel):
     """文档搜索响应"""

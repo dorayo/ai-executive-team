@@ -1,4 +1,4 @@
-import pinecone
+from pinecone import Pinecone, ServerlessSpec
 import os
 import numpy as np
 from typing import List, Dict, Any, Optional
@@ -7,28 +7,30 @@ from app.core.config import settings
 # Initialize Pinecone connection
 def init_pinecone():
     """Initialize connection to Pinecone vector database"""
-    pinecone.init(
-        api_key=settings.PINECONE_API_KEY,
-        environment=settings.PINECONE_ENVIRONMENT
-    )
+    pc = Pinecone(api_key=settings.PINECONE_API_KEY)
     
     # Check if index exists
-    if settings.PINECONE_INDEX_NAME not in pinecone.list_indexes():
+    if settings.PINECONE_INDEX_NAME not in pc.list_indexes().names():
         # Create index if it doesn't exist
-        pinecone.create_index(
+        pc.create_index(
             name=settings.PINECONE_INDEX_NAME,
             dimension=1536,  # Using OpenAI embeddings which are 1536 dimensions
-            metric="cosine"
+            metric="cosine",
+            spec=ServerlessSpec(
+                cloud="aws",
+                region="us-west-2"  # Default region
+            )
         )
     
     # Connect to the index
-    index = pinecone.Index(settings.PINECONE_INDEX_NAME)
+    index = pc.Index(settings.PINECONE_INDEX_NAME)
     return index
 
 def get_pinecone_index():
     """Get the Pinecone index, initializing if necessary"""
     try:
-        return pinecone.Index(settings.PINECONE_INDEX_NAME)
+        pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+        return pc.Index(settings.PINECONE_INDEX_NAME)
     except:
         return init_pinecone()
 
