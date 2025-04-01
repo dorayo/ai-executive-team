@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     # Project info
-    PROJECT_NAME: str = "AI Executive Team"
+    PROJECT_NAME: str = "AI Executive Team API"
     PROJECT_DESCRIPTION: str = "AI-driven executive team simulation using crewAI"
     PROJECT_VERSION: str = "0.1.0"
     API_V1_STR: str = "/api/v1"
@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "supersecretkey")
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7  # 7 days
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 8  # 8 days
     
     # Database
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
@@ -42,8 +42,8 @@ class Settings(BaseSettings):
     
     # Vector Database
     PINECONE_API_KEY: str = os.getenv("PINECONE_API_KEY", "")
-    PINECONE_ENVIRONMENT: str = os.getenv("PINECONE_ENVIRONMENT", "")
-    PINECONE_INDEX_NAME: str = os.getenv("PINECONE_INDEX_NAME", "ai-executive-team")
+    PINECONE_ENVIRONMENT: str = "gcp-starter"
+    PINECONE_INDEX_NAME: str = "ai-executive-team"
     
     # OpenAI API
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
@@ -51,6 +51,13 @@ class Settings(BaseSettings):
     # Email settings
     EMAIL_SENDER: str = os.getenv("EMAIL_SENDER", "youming@vchaoxi.com")
     EMAIL_RECEIVER: str = os.getenv("EMAIL_RECEIVER", "youming@vchaoxi.com")
+    
+    # 文件上传目录
+    UPLOAD_DIR: str = "uploads"
+    
+    # 管理员账户
+    FIRST_SUPERUSER_EMAIL: str
+    FIRST_SUPERUSER_PASSWORD: str
     
     class Config:
         env_file = ".env"

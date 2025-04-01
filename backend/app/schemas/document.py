@@ -4,14 +4,14 @@ from datetime import datetime
 
 # Shared properties
 class DocumentBase(BaseModel):
+    """文档基础模型"""
     title: str
-    content_type: str
     description: Optional[str] = None
 
 # Properties to receive via API on creation
 class DocumentCreate(DocumentBase):
-    content: Optional[str] = None
-    # file will be handled separately via form data
+    """用于创建文档的请求模型"""
+    pass
 
 # Properties to receive via API on update
 class DocumentUpdate(BaseModel):
@@ -20,24 +20,54 @@ class DocumentUpdate(BaseModel):
     content: Optional[str] = None
 
 class DocumentInDBBase(DocumentBase):
+    """数据库中的文档模型"""
     id: int
     file_path: Optional[str] = None
-    content: Optional[str] = None
     vector_ids: Optional[str] = None
     uploaded_by: Optional[int] = None
     created_at: datetime
     updated_at: Optional[datetime] = None
-
+    
     class Config:
-        from_attributes = True
+        orm_mode = True
 
 # Additional properties to return via API
-class Document(DocumentInDBBase):
-    pass
+class DocumentResponse(DocumentInDBBase):
+    """文档响应模型"""
+    content_type: str
+    processing_status: str
+    processing_error: Optional[str] = None
 
-# For vector search results
+class DocumentCreateResponse(BaseModel):
+    """文档创建响应"""
+    id: int
+    title: str
+    description: Optional[str] = None
+    content_type: str
+    created_at: datetime
+    processing_status: str
+    message: str
+    
+    class Config:
+        orm_mode = True
+
+class DocumentSearchQuery(BaseModel):
+    """文档搜索查询"""
+    query: str
+    top_k: int = 5
+
 class DocumentSearchResult(BaseModel):
+    """文档搜索结果"""
     document_id: int
     document_title: str
-    content_snippet: str
-    similarity_score: float 
+    text: str
+    score: float
+    page_number: Optional[int] = None
+    
+    class Config:
+        orm_mode = True
+
+class DocumentSearchResponse(BaseModel):
+    """文档搜索响应"""
+    query: str
+    results: List[DocumentSearchResult] 

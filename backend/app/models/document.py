@@ -14,4 +14,6 @@ class Document(Base):
     vector_ids = Column(Text, nullable=True)  # Comma-separated list of vector IDs in Pinecone
     uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now()) 
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    processing_status = Column(String, default="pending")  # pending, processing, completed, error
+    processing_error = Column(Text, nullable=True)  # 存储处理错误信息 
