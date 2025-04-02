@@ -16,7 +16,7 @@ const LoginPage: React.FC = () => {
   const navigate = useNavigate();
   const auth = useAuth();
   
-  // If already authenticated, redirect to home
+  // 如果已经认证，重定向到首页
   if (auth?.isAuthenticated) {
     return <Navigate to="/" replace />;
   }
@@ -29,7 +29,7 @@ const LoginPage: React.FC = () => {
       await auth?.login(email, password);
       navigate('/');
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Login failed');
+      setError(err.response?.data?.detail || '登录失败');
     }
   };
 
@@ -48,7 +48,7 @@ const LoginPage: React.FC = () => {
       });
       
       // 不自动登录，而是显示成功消息
-      setSuccess('Registration successful! Please login with your credentials.');
+      setSuccess('注册成功！请使用您的凭据登录。');
       setIsLogin(true);
       // 清空表单
       setPassword('');
@@ -56,7 +56,7 @@ const LoginPage: React.FC = () => {
       if (err.response && err.response.data && err.response.data.detail) {
         setError(err.response.data.detail);
       } else {
-        setError('An error occurred during registration');
+        setError('注册过程中发生错误');
       }
     } finally {
       setIsLoading(false);
@@ -74,10 +74,10 @@ const LoginPage: React.FC = () => {
       <div className="max-w-md w-full space-y-8 bg-white p-8 rounded-lg shadow">
         <div>
           <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-            AI Executive Team
+            AI 执行团队
           </h2>
           <p className="mt-2 text-center text-sm text-gray-600">
-            {isLogin ? 'Sign in to access your AI executive team' : 'Register a new account'}
+            {isLogin ? '登录以访问您的 AI 执行团队' : '注册新账户'}
           </p>
         </div>
         
@@ -98,7 +98,7 @@ const LoginPage: React.FC = () => {
             {!isLogin && (
               <div>
                 <label htmlFor="full-name" className="block text-sm font-medium text-gray-700">
-                  Full Name
+                  姓名
                 </label>
                 <input
                   id="full-name"
@@ -107,7 +107,7 @@ const LoginPage: React.FC = () => {
                   autoComplete="name"
                   required={!isLogin}
                   className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                  placeholder="Full Name"
+                  placeholder="请输入您的姓名"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                 />
@@ -116,7 +116,7 @@ const LoginPage: React.FC = () => {
             
             <div>
               <label htmlFor="email-address" className="block text-sm font-medium text-gray-700">
-                Email address
+                电子邮箱
               </label>
               <input
                 id="email-address"
@@ -125,7 +125,7 @@ const LoginPage: React.FC = () => {
                 autoComplete="email"
                 required
                 className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Email address"
+                placeholder="请输入您的电子邮箱"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -133,7 +133,7 @@ const LoginPage: React.FC = () => {
             
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
+                密码
               </label>
               <input
                 id="password"
@@ -142,7 +142,7 @@ const LoginPage: React.FC = () => {
                 autoComplete={isLogin ? "current-password" : "new-password"}
                 required
                 className="appearance-none relative block w-full px-3 py-2 border border-gray-300 placeholder-gray-500 text-gray-900 rounded-md focus:outline-none focus:ring-primary-500 focus:border-primary-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
+                placeholder="请输入密码"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
               />
@@ -160,8 +160,8 @@ const LoginPage: React.FC = () => {
               }`}
             >
               {isLoading 
-                ? (isLogin ? 'Signing in...' : 'Registering...') 
-                : (isLogin ? 'Sign in' : 'Register')}
+                ? (isLogin ? '登录中...' : '注册中...') 
+                : (isLogin ? '登录' : '注册')}
             </button>
           </div>
           
@@ -171,7 +171,7 @@ const LoginPage: React.FC = () => {
               onClick={toggleAuthMode}
               className="text-primary-600 hover:text-primary-500 text-sm font-medium"
             >
-              {isLogin ? 'Need an account? Register' : 'Already have an account? Sign in'}
+              {isLogin ? '没有账号？点击注册' : '已有账号？点击登录'}
             </button>
           </div>
         </form>

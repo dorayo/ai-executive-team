@@ -203,12 +203,35 @@ async def process_user_message(
             conversation_id=conversation_id
         )
         
+        # 获取对话信息
+        conversation = get_conversation(db, conversation_id)
+        
+        # 获取对话中的消息数量
+        message_count = db.query(Message).filter(Message.conversation_id == conversation_id).count()
+        
+        # 如果这是第一条消息，并且标题是默认的"新对话"或为空
+        is_first_message = message_count == 0
+        
+        # 如果是第一条消息，根据内容生成标题
+        if is_first_message and (conversation.title == "新对话" or not conversation.title):
+            # 使用用户输入的前20个字符作为标题基础
+            new_title = content[:20] + "..."
+            
+            # 更新对话标题
+            update_conversation(
+                db=db,
+                db_obj=conversation,
+                obj_in=ConversationUpdate(title=new_title)
+            )
+        
         return {
             "user_message": user_message,
             "ai_message": ai_message,
             "primary_role": primary_role,
             "secondary_roles": response.get("secondary_roles", []),
-            "reasoning": response.get("reasoning", "")
+            "reasoning": response.get("reasoning", ""),
+            "title_updated": is_first_message and (conversation.title == "新对话" or not conversation.title),
+            "new_title": new_title if is_first_message and (conversation.title == "新对话" or not conversation.title) else None
         }
     except Exception as e:
         import logging
@@ -236,5 +259,7 @@ async def process_user_message(
             "ai_message": ai_message,
             "primary_role": "CEO",
             "secondary_roles": [],
-            "reasoning": "处理失败，默认由CEO响应"
+            "reasoning": "处理失败，默认由CEO响应",
+            "title_updated": False,
+            "new_title": None
         } 
