@@ -21,13 +21,11 @@ const DocumentSearchPage: React.FC = () => {
   
   // 向量存储状态
   const [vectorStoreStatus, setVectorStoreStatus] = useState<VectorStoreStatus | null>(null);
-  const [isStatusLoading, setIsStatusLoading] = useState(false);
   
   // 加载向量存储状态
   useEffect(() => {
     const loadVectorStoreStatus = async () => {
       try {
-        setIsStatusLoading(true);
         console.log('正在获取向量存储状态...');
         const status = await getVectorStoreStatus();
         console.log('获取向量存储状态成功:', status);
@@ -38,8 +36,6 @@ const DocumentSearchPage: React.FC = () => {
           status: 'error',
           error: '无法连接到向量存储'
         });
-      } finally {
-        setIsStatusLoading(false);
       }
     };
     

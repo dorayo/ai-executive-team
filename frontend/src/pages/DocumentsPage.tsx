@@ -44,7 +44,6 @@ const DocumentsPage: React.FC = () => {
   
   // 向量存储状态
   const [vectorStoreStatus, setVectorStoreStatus] = useState<VectorStoreStatus | null>(null);
-  const [isLoadingStatus, setIsLoadingStatus] = useState(false);
   
   // 获取文档列表
   const fetchDocuments = async (query?: string) => {
@@ -101,7 +100,6 @@ const DocumentsPage: React.FC = () => {
   // 加载向量存储状态
   const loadVectorStoreStatus = async () => {
     try {
-      setIsLoadingStatus(true);
       const status = await getVectorStoreStatus();
       setVectorStoreStatus(status);
     } catch (err) {
@@ -110,8 +108,6 @@ const DocumentsPage: React.FC = () => {
         status: 'error',
         error: '无法连接到向量存储'
       });
-    } finally {
-      setIsLoadingStatus(false);
     }
   };
   

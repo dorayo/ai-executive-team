@@ -25,6 +25,40 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>AI执行团队</title>
+    <!-- 主题初始化脚本 - 在页面任何内容加载前执行，确保无闪烁 -->
+    <script>
+      (function() {
+        // 尝试应用保存的主题
+        try {
+          var savedTheme = localStorage.getItem('theme');
+          
+          if (savedTheme === 'dark') {
+            document.documentElement.classList.add('dark');
+            document.documentElement.style.colorScheme = 'dark';
+          } else if (savedTheme === 'light') {
+            document.documentElement.classList.remove('dark');
+            document.documentElement.style.colorScheme = 'light';
+          } else {
+            // 如果没有保存的主题，则使用系统偏好
+            if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+              document.documentElement.classList.add('dark');
+              document.documentElement.style.colorScheme = 'dark';
+            } else {
+              document.documentElement.classList.remove('dark');
+              document.documentElement.style.colorScheme = 'light';
+            }
+          }
+        } catch (e) {
+          console.error('主题初始化失败:', e);
+          // 出错时默认使用亮色主题
+          document.documentElement.classList.remove('dark');
+          document.documentElement.style.colorScheme = 'light';
+        }
+        
+        // 调试信息
+        console.log('初始主题设置完成，是否暗色模式:', document.documentElement.classList.contains('dark'));
+      })();
+    </script>
   </head>
   <body>
     <noscript>您需要启用JavaScript来运行此应用程序。</noscript>

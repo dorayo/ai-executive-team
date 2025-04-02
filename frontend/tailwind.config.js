@@ -3,6 +3,7 @@ module.exports = {
   content: [
     "./src/**/*.{js,jsx,ts,tsx}",
   ],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
@@ -30,6 +31,28 @@ module.exports = {
           800: '#1e293b',
           900: '#0f172a',
         },
+      },
+      boxShadow: {
+        'glow-yellow': '0 0 15px rgba(253, 224, 71, 0.5)',
+        'glow-blue': '0 0 15px rgba(96, 165, 250, 0.5)',
+      },
+      keyframes: {
+        fadeIn: {
+          '0%': { opacity: '0', transform: 'translateY(10px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        pulse: {
+          '0%, 100%': {
+            opacity: 1,
+          },
+          '50%': {
+            opacity: 0.5,
+          },
+        },
+      },
+      animation: {
+        'fade-in': 'fadeIn 0.3s ease-out',
+        'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
     },
   },

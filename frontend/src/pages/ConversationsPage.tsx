@@ -50,7 +50,7 @@ const ConversationsPage: React.FC = () => {
     try {
       setIsCreating(true);
       const response = await api.post('/conversations', {
-        title: newTitle || '新对话',
+        title: newTitle.trim() || '新对话',
         user_id: user?.id
       });
       setConversations(prev => [response.data, ...prev]);
@@ -61,6 +61,25 @@ const ConversationsPage: React.FC = () => {
       navigate(`/chat?id=${response.data.id}`);
     } catch (error) {
       console.error('创建对话失败:', error);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  const handleCreateConversationDirect = async () => {
+    try {
+      setIsCreating(true);
+      const response = await api.post('/conversations', {
+        title: '新对话',
+        user_id: user?.id
+      });
+      setConversations(prev => [response.data, ...prev]);
+      
+      // 创建后立即导航到聊天页面
+      navigate(`/chat?id=${response.data.id}`);
+    } catch (error) {
+      console.error('创建对话失败:', error);
+      alert('创建对话失败，请重试');
     } finally {
       setIsCreating(false);
     }
@@ -89,12 +108,13 @@ const ConversationsPage: React.FC = () => {
   };
 
   const handleDeleteConversation = async (id: number) => {
-    if (window.confirm('确定要删除这个对话吗？此操作不可撤销。')) {
+    if (window.confirm('警告：删除对话将永久移除所有相关消息记录，且无法恢复。\n\n您确定要删除这个对话吗？')) {
       try {
         await api.delete(`/conversations/${id}`);
         setConversations(prev => prev.filter(conv => conv.id !== id));
       } catch (error) {
         console.error('删除对话失败:', error);
+        alert('删除对话失败，请重试');
       }
     }
   };
@@ -119,7 +139,7 @@ const ConversationsPage: React.FC = () => {
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold">对话历史</h1>
         <Button
-          onClick={() => handleOpenDialog()}
+          onClick={handleCreateConversationDirect}
           disabled={isCreating}
         >
           {isCreating ? (
@@ -143,7 +163,7 @@ const ConversationsPage: React.FC = () => {
       ) : conversations.length === 0 ? (
         <div className="text-center py-10">
           <p className="text-muted-foreground mb-4">暂无对话记录</p>
-          <Button onClick={() => handleOpenDialog()}>
+          <Button onClick={handleCreateConversationDirect}>
             <Plus className="mr-2 h-4 w-4" />
             创建第一个对话
           </Button>
@@ -225,7 +245,7 @@ const ConversationsPage: React.FC = () => {
           </Button>
           <Button
             onClick={editingConversation ? handleEditConversation : handleCreateConversation}
-            disabled={!newTitle.trim() || isCreating}
+            disabled={isCreating}
           >
             {isCreating ? (
               <>

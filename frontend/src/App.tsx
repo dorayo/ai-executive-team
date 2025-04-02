@@ -17,6 +17,8 @@ import NotFoundPage from './pages/NotFoundPage';
 
 // Auth context
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+// Theme context
+import { ThemeProvider } from './contexts/ThemeContext';
 
 // 错误边界组件
 class ErrorBoundary extends React.Component<
@@ -83,44 +85,46 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 function App() {
   return (
     <ErrorBoundary fallback={<ErrorFallback />}>
-      <AuthProvider>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          
-          <Route path="/" element={
-            <ProtectedRoute>
-              <MainLayout />
-            </ProtectedRoute>
-          }>
-            <Route index element={<ChatPage />} />
-            <Route path="chat" element={<ChatPage />} />
-            <Route path="chat/:conversationId" element={<ChatPage />} />
-            <Route path="documents" element={
-              <ErrorBoundary fallback={
-                <div className="p-8 bg-red-50 rounded">
-                  <h3 className="font-bold text-lg text-red-700">文档页面加载失败</h3>
-                  <p className="mt-2">加载文档页面时发生错误，请稍后再试或联系管理员。</p>
-                  <button
-                    onClick={() => window.location.reload()}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                  >
-                    重新加载
-                  </button>
-                </div>
-              }>
-                <DocumentsPage />
-              </ErrorBoundary>
-            } />
-            <Route path="documents/search" element={<DocumentSearchPage />} />
-            <Route path="documents/:documentId" element={<DocumentDetailPage />} />
-            <Route path="ai-executives" element={<AIExecutivesPage />} />
-            <Route path="conversations" element={<ConversationsPage />} />
-            <Route path="tasks/:conversationId?" element={<TaskPage />} />
-          </Route>
-          
-          <Route path="*" element={<NotFoundPage />} />
-        </Routes>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            
+            <Route path="/" element={
+              <ProtectedRoute>
+                <MainLayout />
+              </ProtectedRoute>
+            }>
+              <Route index element={<ChatPage />} />
+              <Route path="chat" element={<ChatPage />} />
+              <Route path="chat/:conversationId" element={<ChatPage />} />
+              <Route path="documents" element={
+                <ErrorBoundary fallback={
+                  <div className="p-8 bg-red-50 rounded">
+                    <h3 className="font-bold text-lg text-red-700">文档页面加载失败</h3>
+                    <p className="mt-2">加载文档页面时发生错误，请稍后再试或联系管理员。</p>
+                    <button
+                      onClick={() => window.location.reload()}
+                      className="mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                    >
+                      重新加载
+                    </button>
+                  </div>
+                }>
+                  <DocumentsPage />
+                </ErrorBoundary>
+              } />
+              <Route path="documents/search" element={<DocumentSearchPage />} />
+              <Route path="documents/:documentId" element={<DocumentDetailPage />} />
+              <Route path="ai-executives" element={<AIExecutivesPage />} />
+              <Route path="conversations" element={<ConversationsPage />} />
+              <Route path="tasks/:conversationId?" element={<TaskPage />} />
+            </Route>
+            
+            <Route path="*" element={<NotFoundPage />} />
+          </Routes>
+        </AuthProvider>
+      </ThemeProvider>
     </ErrorBoundary>
   );
 }

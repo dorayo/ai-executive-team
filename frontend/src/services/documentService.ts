@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { baseURL, apiClient } from './baseService';
+import { apiClient } from './baseService';
 import { SearchResultItem } from '../components/ui/search-result';
 
 // 文档类型定义
