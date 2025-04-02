@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
@@ -11,7 +11,66 @@ import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, vs } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useTheme } from '../contexts/ThemeContext';
+import { Textarea } from '../components/ui/textarea';
 import '../markdown-styles.css'; // 修复路径
+
+// 消息输入区域
+const ChatInput = ({
+  value,
+  onChange,
+  onSubmit,
+  isLoading,
+  isDisabled,
+}: {
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => void;
+  onSubmit: () => void;
+  isLoading: boolean;
+  isDisabled: boolean;
+}) => {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // 在组件挂载后聚焦输入框
+  useEffect(() => {
+    if (inputRef.current && !isDisabled) {
+      inputRef.current.focus();
+    }
+  }, [isDisabled]);
+
+  return (
+    <div className="flex gap-2 items-end">
+      <Textarea
+        ref={inputRef}
+        value={value}
+        onChange={onChange}
+        placeholder="输入消息..."
+        disabled={isDisabled}
+        className="flex-1 min-h-[42px] max-h-[200px] bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-primary-500 dark:focus:ring-primary-400 transition-colors duration-200 resize-none"
+        autoHeight
+        maxHeight={200}
+        onEnterPress={value.trim() ? onSubmit : undefined}
+      />
+      <Button 
+        type="submit" 
+        disabled={isDisabled || !value.trim()}
+        className="flex-shrink-0 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white transition-colors duration-200 h-10"
+        onClick={onSubmit}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            发送中...
+          </>
+        ) : (
+          <>
+            <Send className="mr-2 h-4 w-4" />
+            发送
+          </>
+        )}
+      </Button>
+    </div>
+  );
+};
 
 const ChatPage: React.FC = () => {
   const { user } = useAuth();
@@ -279,7 +338,7 @@ const ChatPage: React.FC = () => {
   // 自动滚动到最新消息
   const messagesEndRef = React.useRef<HTMLDivElement>(null);
   // 添加输入框引用
-  const inputRef = React.useRef<HTMLInputElement>(null);
+  const inputRef = React.useRef<HTMLTextAreaElement>(null);
   
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -502,40 +561,17 @@ const ChatPage: React.FC = () => {
       </ScrollArea>
 
       {/* 消息输入区域 */}
-      <form onSubmit={handleSubmitMessage} className="p-4 border-t dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm transition-colors duration-300">
-        <div className="flex gap-2">
-          <Input
-            ref={inputRef}
-            value={newMessage}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewMessage(e.target.value)}
-            placeholder="输入消息..."
-            disabled={isLoading || error !== null}
-            className="flex-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-white border-gray-300 dark:border-gray-600 focus:ring-primary-500 dark:focus:ring-primary-400 transition-colors duration-200"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey && newMessage.trim()) {
-                e.preventDefault();
-                handleSubmitMessage(e);
-              }
-            }}
-          />
-          <Button 
-            type="submit" 
-            disabled={isLoading || !newMessage.trim() || error !== null}
-            className="flex-shrink-0 bg-primary-600 hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600 text-white transition-colors duration-200"
-          >
-            {isLoading ? (
-              <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                发送中...
-              </>
-            ) : (
-              <>
-                <Send className="mr-2 h-4 w-4" />
-                发送
-              </>
-            )}
-          </Button>
-        </div>
+      <form 
+        onSubmit={(e) => { e.preventDefault(); handleSubmitMessage(e); }} 
+        className="p-4 border-t dark:border-gray-700 flex-shrink-0 bg-white dark:bg-gray-800 shadow-sm transition-colors duration-300"
+      >
+        <ChatInput 
+          value={newMessage}
+          onChange={(e) => setNewMessage(e.target.value)}
+          onSubmit={() => handleSubmitMessage({ preventDefault: () => {} } as React.FormEvent)}
+          isLoading={isLoading}
+          isDisabled={isLoading || error !== null}
+        />
       </form>
     </div>
   );
