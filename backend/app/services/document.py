@@ -91,10 +91,10 @@ async def process_document_async(db: Session, doc_id: int) -> None:
         
         # 为较小的文档存储内容
         if len(text) <= 100000:  # 大约10万字符(约20页)
-            doc.content = text
+            doc.text_content = text
         else:
             # 对于大型文档，只存储摘要
-            doc.content = get_document_summary(text, max_length=5000)
+            doc.text_content = get_document_summary(text, max_length=5000)
         
         # 更新数据库
         db.commit()
@@ -246,8 +246,8 @@ def get_document_content(db: Session, document_id: int) -> str:
         raise HTTPException(status_code=404, detail="文档不存在")
     
     # 如果数据库中有存储内容，直接返回
-    if doc.content:
-        return doc.content
+    if doc.text_content:
+        return doc.text_content
     
     # 否则尝试从文件中提取
     try:

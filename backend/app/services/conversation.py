@@ -134,6 +134,10 @@ async def process_user_message(
     3. 存储AI回复
     4. 返回处理结果
     """
+    # 限制用户输入长度
+    if len(content) > 3000:
+        content = content[:3000] + "... [内容过长，已截断]"
+    
     # 创建用户消息
     user_message = await create_message(
         db=db,
@@ -155,38 +159,82 @@ async def process_user_message(
         conversation_id=conversation_id
     )
     
-    # 处理用户查询
-    response = await engine.process_query(content)
-    
-    # 确定回复的AI高管
-    primary_role = response.get("primary_role")
-    ai_executive = get_ai_executive_by_role(db, primary_role)
-    
-    if not ai_executive:
-        # 如果找不到主要角色，使用CEO
+    try:
+        # 处理用户查询
+        response = await engine.process_query(content)
+        
+        # 确定回复的AI高管
+        primary_role = response.get("primary_role")
+        ai_executive = get_ai_executive_by_role(db, primary_role)
+        
+        if not ai_executive:
+            # 如果找不到主要角色，使用CEO
+            ai_executive = get_ai_executive_by_role(db, "CEO")
+        
+        if not ai_executive:
+            # 如果仍找不到，使用一个默认ID
+            ai_executive_id = 1
+        else:
+            ai_executive_id = ai_executive.id
+        
+        # 获取AI回复内容
+        ai_response = response.get("response", "很抱歉，无法处理您的请求")
+        
+        # 确保AI回复是字符串
+        if not isinstance(ai_response, str):
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"AI回复不是字符串类型: {type(ai_response)}")
+            # 强制转换为字符串
+            ai_response = str(ai_response)
+        
+        # 限制回复长度
+        if len(ai_response) > 6000:
+            ai_response = ai_response[:6000] + "\n\n[回复过长，部分内容已被截断]"
+        
+        # 创建AI回复消息
+        ai_message = await create_message(
+            db=db,
+            obj_in=MessageCreate(
+                content=ai_response,
+                sender_type=SenderType.AI,
+                sender_id=ai_executive_id
+            ),
+            conversation_id=conversation_id
+        )
+        
+        return {
+            "user_message": user_message,
+            "ai_message": ai_message,
+            "primary_role": primary_role,
+            "secondary_roles": response.get("secondary_roles", []),
+            "reasoning": response.get("reasoning", "")
+        }
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.error(f"处理用户消息时出错: {str(e)}")
+        
+        # 确定使用的AI高管 - 出错时默认使用CEO
         ai_executive = get_ai_executive_by_role(db, "CEO")
-    
-    if not ai_executive:
-        # 如果仍找不到，使用一个默认ID
-        ai_executive_id = 1
-    else:
-        ai_executive_id = ai_executive.id
-    
-    # 创建AI回复消息
-    ai_message = await create_message(
-        db=db,
-        obj_in=MessageCreate(
-            content=response.get("response", "很抱歉，无法处理您的请求"),
-            sender_type=SenderType.AI,
-            sender_id=ai_executive_id
-        ),
-        conversation_id=conversation_id
-    )
-    
-    return {
-        "user_message": user_message,
-        "ai_message": ai_message,
-        "primary_role": primary_role,
-        "secondary_roles": response.get("secondary_roles", []),
-        "reasoning": response.get("reasoning", "")
-    } 
+        ai_executive_id = ai_executive.id if ai_executive else 1
+        
+        # 创建错误回复消息
+        error_message = f"很抱歉，处理您的请求时遇到了错误: {str(e)[:200]}"
+        ai_message = await create_message(
+            db=db,
+            obj_in=MessageCreate(
+                content=error_message,
+                sender_type=SenderType.AI,
+                sender_id=ai_executive_id
+            ),
+            conversation_id=conversation_id
+        )
+        
+        return {
+            "user_message": user_message,
+            "ai_message": ai_message,
+            "primary_role": "CEO",
+            "secondary_roles": [],
+            "reasoning": "处理失败，默认由CEO响应"
+        } 

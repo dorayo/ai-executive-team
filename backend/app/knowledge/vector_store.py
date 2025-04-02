@@ -15,7 +15,7 @@ RETRY_DELAY_SECONDS = 2
 DEFAULT_DIMENSION = 1536  # OpenAI embeddings 维度
 DEFAULT_METRIC = "cosine"
 DEFAULT_CLOUD = "aws"
-DEFAULT_REGION = "us-west-2"
+DEFAULT_REGION = "us-east-1"
 
 class VectorStoreStatus:
     """向量存储状态类"""
@@ -77,6 +77,7 @@ def init_pinecone(force_recreate: bool = False) -> Optional[Any]:
                 pc.delete_index(settings.PINECONE_INDEX_NAME)
             
             logger.info(f"创建新索引: {settings.PINECONE_INDEX_NAME}")
+            # 使用aws us-east-1配置，这是免费计划支持的
             pc.create_index(
                 name=settings.PINECONE_INDEX_NAME,
                 dimension=DEFAULT_DIMENSION,
@@ -144,16 +145,54 @@ def get_pinecone_index(retry: bool = True) -> Any:
         attempts += 1
         try:
             pc = Pinecone(api_key=settings.PINECONE_API_KEY)
+            
+            # 验证索引是否存在，使用异常处理来捕获各种错误
+            try:
+                index_list = pc.list_indexes().names()
+                if settings.PINECONE_INDEX_NAME not in index_list:
+                    logger.warning(f"索引 {settings.PINECONE_INDEX_NAME} 不存在，尝试创建")
+                    # 自动创建索引
+                    return init_pinecone(force_recreate=True)
+            except Exception as list_error:
+                logger.error(f"获取索引列表失败: {str(list_error)}")
+                # 如果是404错误或其他API错误，尝试创建索引
+                return init_pinecone(force_recreate=True)
+            
+            # 获取索引
             index = pc.Index(settings.PINECONE_INDEX_NAME)
             
             # 验证索引是否可用
-            stats = index.describe_index_stats()
-            if stats:
-                _pinecone_status["status"] = VectorStoreStatus.OK
-                _pinecone_status["last_check"] = time.time()
-                _pinecone_status["error"] = None
-                return index
+            try:
+                stats = index.describe_index_stats()
+                if stats:
+                    _pinecone_status["status"] = VectorStoreStatus.OK
+                    _pinecone_status["last_check"] = time.time()
+                    _pinecone_status["error"] = None
+                    return index
+            except Exception as stats_error:
+                logger.error(f"获取索引统计信息失败: {str(stats_error)}")
+                raise  # 重新抛出异常以便重试逻辑处理
                 
+        except PineconeApiException as e:
+            error_message = str(e)
+            last_error = e
+            
+            # 特别处理资源不存在的错误
+            if "Resource" in error_message and "not found" in error_message:
+                logger.warning(f"Pinecone资源未找到: {error_message}")
+                try:
+                    logger.info("尝试创建新索引...")
+                    return init_pinecone(force_recreate=True)
+                except Exception as init_error:
+                    logger.error(f"创建新索引失败: {str(init_error)}")
+                    last_error = init_error
+            
+            logger.warning(f"尝试 {attempts}/{MAX_RETRY_ATTEMPTS} 获取 Pinecone 索引失败: {error_message}")
+            
+            if attempts < MAX_RETRY_ATTEMPTS and retry:
+                logger.info(f"将在 {RETRY_DELAY_SECONDS} 秒后重试...")
+                time.sleep(RETRY_DELAY_SECONDS)
+            
         except Exception as e:
             last_error = e
             logger.warning(f"尝试 {attempts}/{MAX_RETRY_ATTEMPTS} 获取 Pinecone 索引失败: {str(e)}")
@@ -166,7 +205,7 @@ def get_pinecone_index(retry: bool = True) -> Any:
             if attempts == MAX_RETRY_ATTEMPTS - 1 and retry:
                 logger.info("尝试重新初始化 Pinecone...")
                 try:
-                    return init_pinecone()
+                    return init_pinecone(force_recreate=True)
                 except Exception as init_error:
                     logger.error(f"重新初始化 Pinecone 失败: {str(init_error)}")
     
@@ -176,9 +215,35 @@ def get_pinecone_index(retry: bool = True) -> Any:
     _pinecone_status["error"] = str(last_error)
     
     if last_error:
-        raise last_error
+        # 返回一个虚拟索引对象，暂时不抛出异常，减少对用户体验的影响
+        logger.error(f"无法连接到 Pinecone 向量数据库: {str(last_error)}")
+        _pinecone_status["status"] = VectorStoreStatus.ERROR
+        return MockPineconeIndex()  # 返回一个虚拟对象
     else:
         raise RuntimeError("无法连接到 Pinecone 向量数据库")
+
+class MockPineconeIndex:
+    """
+    Pinecone 索引的模拟实现，用于在 Pinecone 不可用时提供基本功能
+    """
+    def __init__(self):
+        self.name = "mock_index"
+        logger.warning("使用模拟 Pinecone 索引，部分功能可能不可用")
+    
+    def describe_index_stats(self):
+        return {"dimension": DEFAULT_DIMENSION, "namespaces": {}, "total_vector_count": 0}
+    
+    def upsert(self, vectors, namespace=None, batch_size=None, **kwargs):
+        logger.warning("模拟索引: 尝试插入向量，但操作被忽略")
+        return {"upserted_count": 0}
+    
+    def query(self, namespace=None, top_k=10, filter=None, include_metadata=True, **kwargs):
+        logger.warning("模拟索引: 尝试查询向量，返回空结果")
+        return {"matches": []}
+    
+    def delete(self, ids=None, namespace=None, filters=None, **kwargs):
+        logger.warning("模拟索引: 尝试删除向量，但操作被忽略")
+        return {}
 
 def get_vector_store_status() -> Dict[str, Any]:
     """
