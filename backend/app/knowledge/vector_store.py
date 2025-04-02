@@ -373,6 +373,13 @@ def search_vectors(query: str, top_k: int = 5, namespace: str = "default", filte
     # 验证输入
     if not query or not query.strip():
         return []
+        
+    # 处理特殊查询，如明确要求附件内容
+    is_attachment_query = False
+    if "附件" in query or "attachment" in query.lower():
+        is_attachment_query = True
+        # 修改查询语句，增加对附件内容的匹配权重
+        query = query + " 附件 attachment"
     
     # 初始化 OpenAI 客户端
     client = OpenAI(api_key=settings.OPENAI_API_KEY)
@@ -392,7 +399,7 @@ def search_vectors(query: str, top_k: int = 5, namespace: str = "default", filte
         # 在 Pinecone 中搜索
         results = index.query(
             vector=query_embedding,
-            top_k=top_k,
+            top_k=top_k * 2 if is_attachment_query else top_k,  # 附件查询时获取更多结果
             include_metadata=True,
             namespace=namespace,
             filter=filter_dict
@@ -401,14 +408,37 @@ def search_vectors(query: str, top_k: int = 5, namespace: str = "default", filte
         # 格式化结果
         formatted_results = []
         for match in results.matches:
+            # 检查是否是附件内容
+            is_attachment = match.metadata.get("is_attachment", False) or "附件" in match.metadata.get("text", "")
+            
+            # 如果是附件查询，优先返回附件内容
+            if is_attachment_query and is_attachment:
+                # 提高附件内容的权重
+                score_boost = 0.2  # 增加20%的相似度分数
+                adjusted_score = min(1.0, match.score + score_boost)
+            else:
+                adjusted_score = match.score
+                
+            # 准备文档类型标签
+            doc_type = "附件" if is_attachment else "正文"
+            
             formatted_results.append({
-                "score": match.score,
+                "score": adjusted_score,
                 "text": match.metadata.get("text", ""),
                 "document_id": match.metadata.get("document_id", ""),
                 "document_title": match.metadata.get("document_title", ""),
                 "page_number": match.metadata.get("page_number", ""),
                 "chunk_index": match.metadata.get("chunk_index", ""),
+                "is_attachment": is_attachment,
+                "doc_type": doc_type
             })
+        
+        # 如果是附件查询，确保附件内容优先展示
+        if is_attachment_query:
+            # 按照是否是附件和相似度分数排序
+            formatted_results.sort(key=lambda x: (-1 if x.get("is_attachment") else 0, x.get("score")), reverse=True)
+            # 限制最终结果数量
+            formatted_results = formatted_results[:top_k]
         
         logger.info(f"查询 '{query[:50]}...' 返回 {len(formatted_results)} 个结果")
         return formatted_results

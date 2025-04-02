@@ -135,8 +135,8 @@ async def process_user_message(
     4. 返回处理结果
     """
     # 限制用户输入长度
-    if len(content) > 3000:
-        content = content[:3000] + "... [内容过长，已截断]"
+    if len(content) > 8000:
+        content = content[:8000] + "... [内容过长，已截断]"
     
     # 创建用户消息
     user_message = await create_message(
@@ -189,8 +189,8 @@ async def process_user_message(
             ai_response = str(ai_response)
         
         # 限制回复长度
-        if len(ai_response) > 6000:
-            ai_response = ai_response[:6000] + "\n\n[回复过长，部分内容已被截断]"
+        if len(ai_response) > 24000:
+            ai_response = ai_response[:24000] + "\n\n[回复过长，部分内容已被截断]"
         
         # 创建AI回复消息
         ai_message = await create_message(
@@ -209,10 +209,10 @@ async def process_user_message(
         # 获取对话中的消息数量
         message_count = db.query(Message).filter(Message.conversation_id == conversation_id).count()
         
-        # 如果这是第一条消息，并且标题是默认的"新对话"或为空
-        is_first_message = message_count == 0
+        # 如果这是第一组消息（用户消息+AI回复，共2条消息），并且标题是默认的"新对话"或为空
+        is_first_message = message_count <= 2
         
-        # 如果是第一条消息，根据内容生成标题
+        # 如果是第一组消息，根据内容生成标题
         if is_first_message and (conversation.title == "新对话" or not conversation.title):
             # 使用用户输入的前20个字符作为标题基础
             new_title = content[:20] + "..."

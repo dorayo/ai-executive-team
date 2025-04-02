@@ -64,14 +64,26 @@ class ExecutiveEngine:
                     query = query[:200] + "..."
                     logger.warning(f"搜索查询过长，已截断至200字符")
                 
-                # 执行搜索，进一步减少结果数量
-                results = search_vectors(query, top_k=2)  # 从3减到2个结果
+                # 执行搜索
+                results = search_vectors(query, top_k=3)  # 增加到3个结果
                 if not results:
                     return "未找到相关信息。您可以尝试换一种方式提问，或者确认知识库中是否有相关文档。"
                 
+                # 将结果按文档类型分组
+                main_content_results = []
+                attachment_results = []
+                
+                for result in results:
+                    if result.get("is_attachment", False):
+                        attachment_results.append(result)
+                    else:
+                        main_content_results.append(result)
+                
                 # 格式化结果
                 formatted_results = []
-                for i, result in enumerate(results):
+                
+                # 先处理主文档内容
+                for i, result in enumerate(main_content_results):
                     # 计算匹配度百分比
                     score_percent = int(result["score"] * 100)
                     
@@ -79,30 +91,50 @@ class ExecutiveEngine:
                     doc_title = result.get("document_title", "未知文档")
                     text = result.get("text", "").strip()
                     
-                    # 更积极地截断文本
-                    if len(text) > 500:  # 从800减少到500
-                        text = text[:500] + "...[内容已截断]"
+                    # 添加页码信息（如果有）
+                    page_info = ""
+                    if result.get("page_number"):
+                        page_info = f"页码: {result.get('page_number')}"
+                    
+                    # 使用更明确的引用格式
+                    formatted_result = f"""引用 #{i+1} - {doc_title} (正文) (匹配度: {score_percent}%){' - ' + page_info if page_info else ''}
+```
+{text}
+```
+
+"""
+                    formatted_results.append(formatted_result)
+                
+                # 然后处理附件内容
+                for i, result in enumerate(attachment_results):
+                    # 计算匹配度百分比
+                    score_percent = int(result["score"] * 100)
+                    
+                    # 获取文档标题和文本
+                    doc_title = result.get("document_title", "未知文档")
+                    text = result.get("text", "").strip()
                     
                     # 添加页码信息（如果有）
                     page_info = ""
                     if result.get("page_number"):
-                        page_info = f"页码: {result.get('page_number')}, "
+                        page_info = f"页码: {result.get('page_number')}"
                     
-                    formatted_result = (
-                        f"{i+1}. 文档: {doc_title} ({page_info}匹配度: {score_percent}%)\n"
-                        f"   内容: {text}\n"
-                    )
+                    # 使用更明确的引用格式，特别标注为附件内容
+                    formatted_result = f"""引用 #{i+1+len(main_content_results)} - {doc_title} (附件内容) (匹配度: {score_percent}%){' - ' + page_info if page_info else ''}
+```
+{text}
+```
+
+"""
                     formatted_results.append(formatted_result)
                 
-                # 构建简化响应
-                response = "搜索结果:\n\n" + "\n".join(formatted_results)
+                # 构建更详细的响应
+                response = "我在知识库中找到了以下相关信息：\n\n" + "\n".join(formatted_results)
                 
                 if len(results) > 0 and results[0]["score"] < 0.75:
-                    response += "\n\n注意: 匹配度较低，请谨慎使用这些信息。"
+                    response += "\n\n注意: 这些信息的匹配度较低，请在使用时结合上下文进行判断。"
                 
-                # 更积极地限制响应长度
-                if len(response) > 2000:  # 从4000减少到2000
-                    response = response[:2000] + "\n\n[响应过长，部分内容已被截断]"
+                response += "\n\n在回答时，请直接引用上述信息并明确标明引用来源，不要只是简单复述。正文和附件内容都很重要，请全面分析所有相关内容。如果信息不足以回答问题，请明确说明。"
                 
                 return response
                 
@@ -127,20 +159,33 @@ class ExecutiveEngine:
         llm = ChatOpenAI(
             model_name=settings.OPENAI_MODEL,
             openai_api_key=settings.OPENAI_API_KEY,
-            temperature=0.7,
-            max_tokens=3000  # 降低生成的最大token数
+            temperature=0.5,  # 降低温度使回答更确定性
+            max_tokens=16384  # 增加最大token数量
         )
         
-        # 截断系统提示以减少token使用
-        system_prompt = executive.prompt_template
-        if len(system_prompt) > 1500:
+        # 构建增强系统提示
+        system_prompt = f"""
+{executive.prompt_template}
+
+重要指引：
+1. 当使用知识库搜索时，对搜索结果进行深入分析，不要简单复述
+2. 引用知识库时，使用明确格式："根据[文档名]：'[引用的文本]'"
+3. 即使匹配度不高，也应分析知识库中可能相关的内容，说明其关联性
+4. 如果知识库中没有相关信息，明确说明并基于你的专业知识提供建议
+5. 回答要简明扼要但内容充实，重点突出，逻辑清晰
+6. 避免空洞的表述和过度冗长的内容
+7. 提供具体、可执行的建议和明确的结论
+"""
+        
+        # 确保系统提示不会过长
+        if len(system_prompt) > 2000:
             logger.warning(f"系统提示过长，已截断（原长度：{len(system_prompt)}）")
-            system_prompt = system_prompt[:1500] + "..."
+            system_prompt = system_prompt[:2000] + "..."
         
         return Agent(
             role=executive.name,
             goal=f"作为{executive.role}，提供最佳的专业建议和决策",
-            backstory=executive.description[:500],  # 限制背景故事的长度
+            backstory=executive.description[:300],  # 进一步限制背景故事的长度
             verbose=True,
             allow_delegation=True,
             tools=self.tools,
@@ -158,8 +203,8 @@ class ExecutiveEngine:
         manager_llm = ChatOpenAI(
             model_name=settings.OPENAI_MODEL,
             openai_api_key=settings.OPENAI_API_KEY,
-            temperature=0.7,
-            max_tokens=800  # 进一步降低管理LLM的token长度
+            temperature=0.5,  # 降低温度使输出更确定
+            max_tokens=4000  # 增加max_tokens量
         )
         
         crew = Crew(
@@ -252,42 +297,108 @@ class ExecutiveEngine:
         """处理用户查询，返回AI高管团队的回答"""
         try:
             # 更积极地限制查询长度
-            if len(query) > 2000:
-                logger.warning(f"查询长度超过2000字符，已截断（原长度：{len(query)}）")
-                query = query[:2000] + "... [查询内容已截断]"
+            if len(query) > 8000:
+                logger.warning(f"查询长度超过8000字符，已截断（原长度：{len(query)}）")
+                query = query[:8000] + "... [查询内容已截断]"
+            
+            # 获取对话历史记录（如果有对话ID）
+            conversation_context = ""
+            if self.conversation_id:
+                try:
+                    from app.services.conversation import get_messages
+                    from app.db.session import SessionLocal
+                    
+                    # 创建数据库会话
+                    db = SessionLocal()
+                    try:
+                        # 获取最近的5条消息作为上下文
+                        messages = get_messages(db, self.conversation_id, skip=0, limit=10)
+                        if messages and len(messages) > 1:  # 确保有历史消息
+                            # 构建对话历史上下文，最多取最近5轮对话
+                            recent_messages = messages[-10:]  # 最近的10条消息
+                            history_pairs = []
+                            
+                            # 整理成对话对
+                            for i in range(0, len(recent_messages)-1, 2):
+                                if i+1 < len(recent_messages):
+                                    user_msg = recent_messages[i]
+                                    ai_msg = recent_messages[i+1]
+                                    if user_msg.sender_type == "USER" and ai_msg.sender_type == "AI":
+                                        history_pairs.append({
+                                            "user": user_msg.content[:300],  # 限制长度
+                                            "ai": ai_msg.content[:500]  # 限制长度
+                                        })
+                            
+                            # 构建上下文文本
+                            if history_pairs:
+                                context_parts = ["以下是之前的对话历史（仅供参考）："]
+                                for i, pair in enumerate(history_pairs):
+                                    context_parts.append(f"用户: {pair['user']}")
+                                    context_parts.append(f"AI: {pair['ai']}")
+                                context_parts.append("\n现在，请回答用户的新问题。")
+                                conversation_context = "\n\n".join(context_parts)
+                                
+                                # 限制上下文长度
+                                if len(conversation_context) > 8000:
+                                    conversation_context = conversation_context[:8000] + "\n...[历史记录已截断]"
+                                
+                                logger.info(f"为查询添加了 {len(history_pairs)} 轮对话历史上下文")
+                    finally:
+                        db.close()
+                except Exception as e:
+                    logger.error(f"获取对话历史失败: {str(e)}")
+                    # 忽略错误，继续处理查询
             
             # 分析查询应由哪个高管处理
             analysis = self.analyze_query(query)
             primary_role = analysis["primary_role"]
             secondary_roles = analysis["secondary_roles"]
             
-            # 创建主要任务，明确任务的预期输出长度
-            task = Task(
-                description=query,
-                agent=self.agents.get(primary_role),
-                expected_output="简明扼要的分析和回答，控制在1500字以内",
-            )
+            # 创建主要任务，明确任务的预期输出
+            task_description = f"""
+            请处理以下问题并提供专业回答：
             
-            # 确保CEO代理存在
-            if "CEO" not in self.agents:
-                raise ValueError("缺少CEO高管配置")
+            {query}
+            
+            要求：
+            1. 务必先使用search_knowledge_base工具搜索相关信息
+            2. 当发现相关信息时，明确引用知识库内容，使用格式：'根据[文档名]：[引用内容]'
+            3. 基于知识库内容进行详细分析，不要简单复述
+            4. 重要：同时分析正文和附件内容，不要忽略附件中的关键信息
+            5. 如果用户询问附件内容，请特别关注标记为"附件内容"的引用部分
+            6. 回答应内容充实，重点突出，逻辑清晰，对于复杂问题可适当增加篇幅（1000-2000字）
+            7. 如果无法找到相关信息，请明确指出并给出基于专业知识的建议
+            """
+            
+            # 如果有对话历史上下文，添加到任务描述中
+            if conversation_context:
+                task_description = f"""
+                {conversation_context}
+                
+                {task_description}
+                """
+            
+            task = Task(
+                description=task_description,
+                agent=self.agents.get(primary_role),
+                expected_output="基于知识库信息的专业分析，包含具体引用和明确建议",
+            )
             
             # 设置管理LLM
             manager_llm = ChatOpenAI(
                 model_name=settings.OPENAI_MODEL,
                 openai_api_key=settings.OPENAI_API_KEY,
-                temperature=0.7,
-                max_tokens=800  # 较低的token限制
+                temperature=0.5,  # 降低温度使输出更确定
+                max_tokens=4000  # 增加max_tokens量
             )
             
-            # 创建精简的代理列表，只包含主要角色和必要的CEO
+            # 创建精简的代理列表，优先使用主要角色
             focused_agents = []
             # 添加主要角色的代理
             if primary_role in self.agents:
                 focused_agents.append(self.agents[primary_role])
-            
-            # 始终添加CEO作为主要决策者
-            if primary_role != "CEO" and "CEO" in self.agents:
+            else:
+                # 如果找不到主要角色，使用CEO
                 focused_agents.append(self.agents["CEO"])
             
             # 添加次要角色代理（但控制数量）
@@ -310,10 +421,10 @@ class ExecutiveEngine:
             # 确保结果是字符串
             response_text = str(result) if result else "很抱歉，无法处理您的请求"
             
-            # 更积极地限制响应长度
-            if len(response_text) > 5000:
-                logger.warning(f"响应长度超过5000字符，已截断（原长度：{len(response_text)}）")
-                response_text = response_text[:5000] + "\n\n[响应过长，部分内容已被截断]"
+            # 限制响应长度，但允许更长的回复
+            if len(response_text) > 24000:
+                logger.warning(f"响应长度超过24000字符，已截断（原长度：{len(response_text)}）")
+                response_text = response_text[:24000] + "\n\n[响应过长，部分内容已被截断]"
             
             return {
                 "response": response_text,

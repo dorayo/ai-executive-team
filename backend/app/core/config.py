@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     
     # OpenAI API
     OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4")
+    OPENAI_MODEL: str = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
     
     # Email settings
     EMAIL_SENDER: str = os.getenv("EMAIL_SENDER", "youming@vchaoxi.com")
