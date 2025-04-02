@@ -160,10 +160,42 @@ const ChatPage: React.FC = () => {
       setConversationId(conversationId);
       fetchConversation(conversationId);
     } else {
-      // 如果没有 ID，则创建或获取与 CEO 的对话
-      initializeChatWithCEO();
+      // 如果没有 ID，加载最近的对话而不是默认创建新的对话
+      loadMostRecentConversation();
     }
-  }, [user, navigate, location.search, initializeChatWithCEO]);
+  }, [user, navigate, location.search]);
+
+  // 新增：加载最近的对话函数
+  const loadMostRecentConversation = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      // 获取所有对话
+      const response = await api.get('/conversations');
+      const conversations = response.data;
+      
+      if (conversations && conversations.length > 0) {
+        // 已有对话，加载最近的一个（列表已按更新时间排序）
+        const mostRecent = conversations[0];
+        setConversationId(mostRecent.id);
+        fetchConversation(mostRecent.id);
+        
+        // 更新URL以反映当前对话ID
+        navigate(`/chat?id=${mostRecent.id}`, { replace: true });
+      } else {
+        // 没有现有对话，创建新对话
+        initializeChatWithCEO();
+      }
+    } catch (error) {
+      console.error('加载最近对话失败:', error);
+      setError('无法加载最近的对话');
+      // 失败时尝试创建新对话
+      initializeChatWithCEO();
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // 获取指定 ID 的对话
   const fetchConversation = async (id: number) => {

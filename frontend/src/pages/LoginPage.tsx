@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import axios from 'axios';
 import { API_URL } from '../config';
@@ -12,13 +12,36 @@ const LoginPage: React.FC = () => {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [redirectPath, setRedirectPath] = useState('/');
   
   const navigate = useNavigate();
+  const location = useLocation();
   const auth = useAuth();
   
-  // 如果已经认证，重定向到首页
+  // 检查URL查询参数中是否有重定向路径
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const redirect = params.get('redirect');
+    if (redirect) {
+      setRedirectPath(decodeURIComponent(redirect));
+      // 存储到sessionStorage以备后用
+      sessionStorage.setItem('redirectAfterLogin', decodeURIComponent(redirect));
+    }
+  }, [location]);
+  
+  // 获取登录后重定向路径
+  useEffect(() => {
+    const savedPath = sessionStorage.getItem('redirectAfterLogin');
+    if (savedPath) {
+      setRedirectPath(savedPath);
+    }
+  }, []);
+  
+  // 如果已经认证，重定向到保存的路径
   if (auth?.isAuthenticated) {
-    return <Navigate to="/" replace />;
+    // 清除保存的路径
+    sessionStorage.removeItem('redirectAfterLogin');
+    return <Navigate to={redirectPath} replace />;
   }
   
   const handleSubmit = async (e: React.FormEvent) => {
@@ -26,10 +49,21 @@ const LoginPage: React.FC = () => {
     setError('');
     
     try {
+      setIsLoading(true);
       await auth?.login(email, password);
-      navigate('/');
+      
+      // 清除保存的路径并重定向
+      const path = redirectPath;
+      sessionStorage.removeItem('redirectAfterLogin');
+      
+      // 延迟导航，确保令牌已保存
+      setTimeout(() => {
+        navigate(path);
+      }, 100);
     } catch (err: any) {
       setError(err.response?.data?.detail || '登录失败');
+    } finally {
+      setIsLoading(false);
     }
   };
 
